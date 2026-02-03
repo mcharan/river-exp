@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[7]:
+# In[1]:
 
 
 import os
@@ -13,14 +13,133 @@ import psutil
 import statistics
 import collections
 import argparse
+import random
 import numpy as np
 import pandas as pd
 from scipy.io import arff
 from river import base, tree, drift, utils, stats, metrics, datasets
 from river.datasets import synth
+# Tenta importar as classes de folha do local correto
+try:
+    # Caminho mais comum em versoes recentes
+    from river.tree.nodes.htc_nodes import LeafMajorityClass, LeafNaiveBayes, LeafNaiveBayesAdaptive
+except ImportError:
+    # Fallback caso a estrutura de importacao varie
+    from river.tree.nodes import LeafMajorityClass, LeafNaiveBayes, LeafNaiveBayesAdaptive
 
 
-# In[9]:
+# In[2]:
+
+
+# =============================================================================
+# 1. MIXIN DE SUBESPAÇO ALEATÓRIO (Lógica central do RandomLearningNode.java)
+# =============================================================================
+class RandomSubspaceNodeMixin:
+    """
+    Mixin que implementa a lógica de seleção de subespaço aleatório por nó.
+    Equivalente ao RandomLearningNode do Java.
+    """
+    def __init__(self, subspace_size, rng, **kwargs):
+        super().__init__(**kwargs)
+        self.subspace_size = subspace_size
+        self.rng = rng
+        self.selected_features = None  # Lista de atributos selecionados (int[] listAttributes no Java)
+
+    def learn_one(self, x, y, *, sample_weight=1.0, tree=None):
+        # Seleção Lazy (na primeira vez que vê uma instância), igual ao Java
+        if self.selected_features is None:
+            all_features = list(x.keys())
+            n_features = len(all_features)
+            
+            k = self.subspace_size
+            
+            # Lógica do Java: "Negative values = #features - k"
+            if k < 0:
+                k = n_features + k
+            
+            # Garante limites
+            k = max(1, min(k, n_features))
+            
+            # Sorteio sem reposição (implementa o loop while/check unique do Java)
+            self.selected_features = self.rng.sample(all_features, k)
+
+        # Filtra o dicionário x mantendo APENAS as features selecionadas
+        # Isso garante que as estatísticas (Gaussianas/Histogramas) só sejam criadas para essas features.
+        # Equivalente ao loop "for (int j = 0; j < this.numAttributes; j++)" do Java
+        x_subset = {key: x[key] for key in self.selected_features if key in x}
+
+        # Passa o x filtrado para a lógica original do River (update stats)
+        super().learn_one(x_subset, y, sample_weight=sample_weight, tree=tree)
+
+    def best_split_suggestions(self, criterion, tree):
+        # Como filtramos o x no learn_one, o super().best_split_suggestions 
+        # só vai considerar os atributos que existem nas estatísticas internas.
+        return super().best_split_suggestions(criterion, tree)
+
+# =============================================================================
+# 2. CLASSES DE NÓS CONCRETAS (MC, NB, NBA)
+# =============================================================================
+# Precisamos combinar o Mixin com os tipos de nós do River para suportar
+# Majority Class (MC), Naive Bayes (NB) e Naive Bayes Adaptive (NBA)
+
+class ARTELeafMajorityClass(RandomSubspaceNodeMixin, LeafMajorityClass):
+    """No Majority Class com Subespaco Aleatorio."""
+    pass
+
+class ARTELeafNaiveBayes(RandomSubspaceNodeMixin, LeafNaiveBayes):
+    """No Naive Bayes com Subespaco Aleatorio."""
+    pass
+
+class ARTELeafNaiveBayesAdaptive(RandomSubspaceNodeMixin, LeafNaiveBayesAdaptive):
+    """No Naive Bayes Adaptive com Subespaco Aleatorio."""
+    pass
+
+
+# In[3]:
+
+
+class ARTEHoeffdingTree(tree.HoeffdingTreeClassifier):
+    """
+    Port do ARTEHoeffdingTree.java para River.
+    
+    Parâmetros:
+        subspace_size (int): O parâmetro 'k'. Define o número de features por nó.
+                             Se negativo, usa (Total - k).
+        seed (int): Semente aleatória para a seleção de features.
+    """
+    def __init__(self, subspace_size=2, seed=None, **kwargs):
+        # O artigo diz: "pruning in random forests reduces variability".
+        # Portanto, forçamos remove_poor_attrs=False (desativa poda de atributos ruins).
+        kwargs['remove_poor_attrs'] = False
+        
+        super().__init__(**kwargs)
+        self.subspace_size = subspace_size
+        self._rng = random.Random(seed)
+        
+    def _new_learning_node(self, initial_stats=None, parent=None):
+        """
+        Sobrescreve a criação de nós para injetar nós customizados
+        que suportam Random Subspace.
+        """
+        # Define qual classe de nó usar baseado na configuração da folha
+        if self.leaf_prediction == 'mc':
+            node_cls = ARTELeafMajorityClass
+        elif self.leaf_prediction == 'nb':
+            node_cls = ARTELeafNaiveBayes
+        elif self.leaf_prediction == 'nba':
+            node_cls = ARTELeafNaiveBayesAdaptive
+        else:
+            node_cls = ARTELeafMajorityClass
+
+        # Retorna o nó instanciado com o subspace_size e o gerador aleatório
+        return node_cls(
+            subspace_size=self.subspace_size,
+            rng=self._rng,
+            initial_stats=initial_stats
+        )
+
+
+# In[4]:
 
 
 class ARTE(base.Ensemble, base.Classifier):
@@ -31,30 +150,48 @@ class ARTE(base.Ensemble, base.Classifier):
 
     def __init__(
         self,
-        model: base.Classifier = None,
+        n_features: int,
+        nominal_attributes: list = None,
         n_models: int = 100,
         lambd: float = 6.0,
         drift_detector: base.DriftDetector = None,
         window_size: int = 1000,
         n_rejections: int = 5,
-        seed: int = 1
+        seed: int = 1,
+        k_min: int = 2
     ):
-        # O modelo base sugerido no original é a ARFHoeffdingTree
-        # No River, usamos HoeffdingTreeClassifier como base
-        self.model = model or tree.HoeffdingTreeClassifier()
+
+        self.n_features = n_features
+        self.nominal_attributes = nominal_attributes or [] # Lista de índices
         self.n_models = n_models
         self.lambd = lambd
         self.drift_detector = drift_detector or drift.ADWIN(delta=1e-3)
         self.window_size = window_size
         self.n_rejections = n_rejections
         self.seed = seed
+        self.k_min = k_min
         self._rng = np.random.RandomState(self.seed)
         
         # Inicialização dos membros conforme a estrutura AREBaseLearner do original
         self._ensemble_members = []
         for i in range(self.n_models):
+            tree_seed = self._rng.randint(0, 1000000)
+
+            # Sorteia k inicial
+            k_init = self._rng.randint(self.k_min, self.n_features + 1)
+
+            # Cria árvore com Random Subspace e SEM Poda
+            tree_model = ARTEHoeffdingTree(
+                subspace_size=k_init, 
+                seed=tree_seed, 
+                nominal_attributes=self.nominal_attributes,
+                grace_period=100,
+                delta=0.01
+                # remove_poor_attrs já é forçado para False dentro da classe
+            )
+            
             m = {
-                'model': self.model.clone(),
+                'model': tree_model,
                 'detector': self.drift_detector.clone(),
                 'untrained_counts': collections.defaultdict(int),
                 'window_acc': utils.Rolling(stats.Mean(), window_size=self.window_size),
@@ -139,8 +276,22 @@ class ARTE(base.Ensemble, base.Classifier):
         return 0 # Fallback
 
     def _reset_member(self, m):
+        """
+        Reset fiel ao artigo: Sorteia novo k entre [k_min, f].
+        """
+        # Sorteia novo tamanho de subespaço
+        new_k = self._rng.randint(self.k_min, self.n_features + 1)
+        new_seed = self._rng.randint(0, 1000000)
+
         """Reinicia o modelo e estatísticas após detecção de mudança."""
-        m['model'] = self.model.clone()
+        # Recria a árvore limpa
+        m['model'] = ARTEHoeffdingTree(
+            subspace_size=new_k, 
+            seed=new_seed, 
+            nominal_attributes=self.nominal_attributes,
+            grace_period=100,
+            delta=0.01
+        )
         m['detector'] = self.drift_detector.clone()
         m['untrained_counts'].clear()
         m['window_acc'] = utils.Rolling(stats.Mean(), window_size=self.window_size)
@@ -150,7 +301,7 @@ class ARTE(base.Ensemble, base.Classifier):
         return self._total_drifts
 
 
-# In[11]:
+# In[5]:
 
 
 def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
@@ -182,13 +333,6 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
         filename = real_files[name]
         path = os.path.join(paim_path, filename)
         
-        if not os.path.exists(path):
-            # Fallback para datasets embutidos do River se não tiver o arquivo
-            if name == 'electricity': return _load_river_dataset(datasets.Elec2())
-            if name == 'shuttle': return _load_river_dataset(datasets.Shuttle())
-            if name == 'covtype': return _load_river_dataset(datasets.Covertype())
-            raise FileNotFoundError(f"Arquivo {filename} não encontrado e sem fallback.")
-
         print(f"Carregando ARFF Real: {filename}...")
         data, meta = arff.loadarff(path)
         df = pd.DataFrame(data)
@@ -210,12 +354,26 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
             # Se for string (ex: 'UP', 'Class1'), converte para categorical codes
             y = pd.Categorical(y).codes
 
+        # --- DETECÇÃO DE NOMINAIS ---
+        nominal_attributes = []
+        X_final = X.copy()
+
+        for idx, col in enumerate(X.columns):
+            # Se for object ou category, ou se tiver poucos valores únicos (heurística opcional)
+            if X[col].dtype == object or X[col].dtype.name == 'category':
+                nominal_attributes.append(idx)
+                # Converte string -> int (Label Encoding) para o River processar rápido
+                # Mas avisaremos a árvore que esse int é uma categoria!
+                X_final[col] = pd.Categorical(X[col]).codes
+            else:
+                # Garante float para numéricos
+                X_final[col] = pd.to_numeric(X_final[col], errors='coerce').fillna(0.0)
         # Para Árvores, NÃO precisamos de One-Hot Encoding global.
         # O Hoeffding Tree lida bem com numéricos. 
         # Categoricos devem ser passados como dict.
         # Aqui retornamos numpy, depois convertemos para dict no loop.
         
-        return X.values, y.values, X.shape[1], len(np.unique(y))
+        return X.values, y.values, X.shape[1], len(np.unique(y)), nominal_attributes
     
     # --- 2. SINTÉTICOS COM DRIFT (TABELA 14) ---
     # Lógica: Drift a cada 250.000 instâncias (total 1M)
@@ -280,7 +438,7 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
             
         X_np = np.array(X_final)
         y_np = np.array(y_final)
-        return X_np, y_np, X_np.shape[1], len(np.unique(y_np))
+        return X_np, y_np, X_np.shape[1], len(np.unique(y_np)), []
 
     raise ValueError(f"Dataset {name} desconhecido")
 
@@ -310,7 +468,7 @@ def _load_river_dataset(dataset):
     
 
 
-# In[13]:
+# In[6]:
 
 
 # =============================================================================
@@ -335,21 +493,25 @@ def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, windo
     # 1. Carrega Dados (NumPy)
     print(f"--- Carregando {dataset} ---")
     try:
-        X_all, y_all, n_feat, n_classes = get_dataset_universal(dataset, seed=seed)
+        X_all, y_all, n_feat, n_classes, nom_indices = get_dataset_universal(dataset, seed=seed)
     except Exception as e:
         print(f"Erro carregando {dataset}: {e}")
         return
 
     print(f"Dataset: {dataset} | Inst: {len(X_all)} | Feat: {n_feat} | Classes: {n_classes}")
+    print(f"Atributos Nominais (Indices): {nom_indices}")
 
     # 2. Setup do Modelo
     # ARTE Original usa Hoeffding Tree e n_models=50-100
     model = ARTE(
+        n_features=n_feat,
+        nominal_attributes=nom_indices,
         n_models=n_models,
         lambd=lambda_val,
         window_size=window_size, # W=500 conforme paper
         drift_detector=drift.ADWIN(delta=0.001),
-        seed=seed
+        seed=seed,
+        k_min=2
     )
 
     # Métricas
@@ -457,7 +619,7 @@ if __name__ == "__main__":
         # Configuração completa para replicar a Tabela 14 do artigo original
         datasets_to_run = [
             # --- DATASETS REAIS ---
-            'agrawal_g',
+            'covtype',
             'covtype',      # 581k instancias
             'electricity',  # 45k
             'gassensor',    # 13k
@@ -490,7 +652,7 @@ if __name__ == "__main__":
         # Execucao em loop
         for ds in datasets_to_run:
             # Nota: seed fixa para garantir reprodutibilidade
-            main_arte_cpu(dataset=ds, seed=123456789, n_models=50, window_size=500)
+            main_arte_cpu(dataset=ds, seed=123456789, n_models=100, window_size=500)
     
 
 
