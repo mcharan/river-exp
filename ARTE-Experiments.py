@@ -314,12 +314,13 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
     
     # Mapeamento Tabela 14 - Reais
     real_files = {
+        'airlines': 'airlines.arff',
         'electricity': 'elecNormNew.arff', # ou electricity.arff
         'elec2': 'elecNormNew.arff',
         'airlines': 'airlines.arff',
         'covtype': 'covtypeNorm.arff',   # 581k inst
         'gassensor': 'gassensor.arff',   # 13k
-        'gmsc': 'gmsc.arff',             # 150k
+        'gmsc': 'GMSC.arff',             # 150k
         'keystroke': 'keystroke.arff',   # 1.6k
         'outdoor': 'outdoor.arff',       # 4k
         'ozone': 'ozone.arff',           # 2.5k
@@ -333,48 +334,70 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
         filename = real_files[name]
         path = os.path.join(paim_path, filename)
         
-        print(f"Carregando ARFF Real: {filename}...")
-        data, meta = arff.loadarff(path)
-        df = pd.DataFrame(data)
+        # Lógica especial para Electricity se o arquivo não existir ou der erro
+        if name == 'electricity' and not os.path.exists(path):
+            # O River retorna (X_np, y_np...), então retornamos direto + [] (nominais vazios)
+            X, y, nf, nc = _load_river_dataset(datasets.Elec2())
+            return X, y, nf, nc, []
+
+        if os.path.exists(path):
+            print(f"Carregando ARFF Real: {filename}...")
+            try:
+                data, meta = arff.loadarff(path)
+                df = pd.DataFrame(data)
+                
+                # Decode bytes
+                for col in df.columns:
+                    if df[col].dtype == object:
+                        df[col] = df[col].str.decode('utf-8')
         
-        # Decode bytes
-        for col in df.columns:
-            if df[col].dtype == object:
-                df[col] = df[col].str.decode('utf-8')
-
-        target_col = df.columns[-1]
-        X = df.drop(columns=[target_col])
-        y = df[target_col]
-
-        # Tratamento de Labels (String/Bytes -> Int)
-        # Tenta converter para numérico, se falhar, usa fatorização
-        try:
-            y = pd.to_numeric(y)
-        except:
-            # Se for string (ex: 'UP', 'Class1'), converte para categorical codes
-            y = pd.Categorical(y).codes
-
-        # --- DETECÇÃO DE NOMINAIS ---
-        nominal_attributes = []
-        X_final = X.copy()
-
-        for idx, col in enumerate(X.columns):
-            # Se for object ou category, ou se tiver poucos valores únicos (heurística opcional)
-            if X[col].dtype == object or X[col].dtype.name == 'category':
-                nominal_attributes.append(idx)
-                # Converte string -> int (Label Encoding) para o River processar rápido
-                # Mas avisaremos a árvore que esse int é uma categoria!
-                X_final[col] = pd.Categorical(X[col]).codes
-            else:
-                # Garante float para numéricos
-                X_final[col] = pd.to_numeric(X_final[col], errors='coerce').fillna(0.0)
-        # Para Árvores, NÃO precisamos de One-Hot Encoding global.
-        # O Hoeffding Tree lida bem com numéricos. 
-        # Categoricos devem ser passados como dict.
-        # Aqui retornamos numpy, depois convertemos para dict no loop.
+                target_col = df.columns[-1]
+                X = df.drop(columns=[target_col])
+                y = df[target_col]
         
-        return X.values, y.values, X.shape[1], len(np.unique(y)), nominal_attributes
-    
+                # Tratamento de Labels (String/Bytes -> Int)
+                # Tenta converter para numérico, se falhar, usa fatorização
+                try:
+                    y = pd.to_numeric(y)
+                except:
+                    # Se for string (ex: 'UP', 'Class1'), converte para categorical codes
+                    y = pd.Categorical(y).codes
+
+                # --- DETECÇÃO DE NOMINAIS ---
+                nominal_attributes = []
+                X_final = X.copy()
+        
+                for idx, col in enumerate(X.columns):
+                    # Se for object ou category, ou se tiver poucos valores únicos (heurística opcional)
+                    if X[col].dtype == object or X[col].dtype.name == 'category':
+                        nominal_attributes.append(idx)
+                        # Converte string -> int (Label Encoding) para o River processar rápido
+                        # Mas avisaremos a árvore que esse int é uma categoria!
+                        X_final[col] = pd.Categorical(X[col]).codes
+                    else:
+                        # Garante float para numéricos
+                        X_final[col] = pd.to_numeric(X_final[col], errors='coerce').fillna(0.0)
+                # Para Árvores, NÃO precisamos de One-Hot Encoding global.
+                # O Hoeffding Tree lida bem com numéricos. 
+                # Categoricos devem ser passados como dict.
+                # Aqui retornamos numpy, depois convertemos para dict no loop.
+                
+                return X.values, y.values, X.shape[1], len(np.unique(y)), nominal_attributes
+            except Exception as e:
+                print(f"Erro ao ler ARFF {filename}: {e}. Tentando fallback...")
+                # Se falhar a leitura do arquivo, tenta fallback do River para datasets conhecidos
+                pass
+    # Fallbacks de Datasets Reais Embutidos no River
+    if name == 'electricity': 
+        X, y, nf, nc = _load_river_dataset(datasets.Elec2())
+        return X, y, nf, nc, []
+    if name == 'shuttle': 
+        X, y, nf, nc = _load_river_dataset(datasets.Shuttle())
+        return X, y, nf, nc, []
+    if name == 'covtype': 
+        X, y, nf, nc = _load_river_dataset(datasets.Covertype())
+        return X, y, nf, nc, []
+          
     # --- 2. SINTÉTICOS COM DRIFT (TABELA 14) ---
     # Lógica: Drift a cada 250.000 instâncias (total 1M)
     parts = name.split('_')
@@ -399,7 +422,7 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
         
     elif base_name == 'sea':
         # SEA: 4 funções baseadas em limiar
-        for f in range(4): gen_list.append(synth.SEA(classification_function=f, seed=seed))
+        for f in range(4): gen_list.append(synth.SEA(variant=f, seed=seed))
             
     elif base_name == 'mixed':
         # Mixed: Boolean functions
@@ -415,7 +438,7 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
         speed = 0.001 if drift_type == 'f' else 0.0001
         # RBF gera drift nativamente, não precisa de blocos!
         # Retornamos gerador direto.
-        gen = synth.RandomRBF(seed=seed, n_classes=5, n_features=10, n_centroids=50, change_speed=speed)
+        gen = synth.RandomRBFDrift(seed_model=seed, seed_sample=seed, n_classes=5, n_features=10, n_centroids=50, change_speed=speed)
         return _gen_to_numpy(gen, n_synthetic)
 
     # Processamento dos Blocos (para Agrawal, SEA, LED, Mixed)
@@ -482,7 +505,7 @@ def log_results_to_csv(filename, stats_dict):
         df.to_csv(filename, mode='a', header=False, index=False)
 
 
-# In[ ]:
+# In[7]:
 
 
 # =============================================================================
@@ -560,10 +583,17 @@ def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, windo
         latencies.append((dur_pred + dur_learn) * 1000) # ms
 
         # 4. Logs (a cada 2k ou 10k dependendo do tamanho)
+        is_last_instance = (count + 1) == len(X_all)
         log_interval = 2000
-        if (count + 1) % log_interval == 0:
+        if (count + 1) % log_interval == 0 or is_last_instance:
             ram = psutil.Process().memory_info().rss / (1024 * 1024)
-            avg_lat = sum(latencies[-log_interval:]) / log_interval
+
+            # Evita divisão por zero se o dataset for minúsculo e latencies estiver vazia
+            avg_lat = 0.0
+            if latencies:
+                # Pega as últimas X latências ou todas se tiver menos que o intervalo
+                slice_size = min(len(latencies), log_interval)
+                avg_lat = sum(latencies[-slice_size:]) / slice_size
             
             stats_dict = {
                 "Run_ID": run_id,
