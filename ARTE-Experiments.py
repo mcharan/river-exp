@@ -303,167 +303,107 @@ class ARTE(base.Ensemble, base.Classifier):
 
 # In[5]:
 
-
-def get_dataset_universal(dataset_name, seed=42, n_synthetic=1000000):
+def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
     """
-    Suporta Datasets Reais (ARFF) e Sintéticos com Drift Simulado (Blocos).
+    Carregador Universal: Le ARFFs do disco (Reais e Sinteticos do MOA).
+    Retorna: X (numpy), y (numpy), n_features, n_classes, nominal_indices
     """
     name = dataset_name.lower()
-    # Ajuste este caminho para o seu ambiente
-    paim_path = "/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets" 
+    paim_path = "/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets" 
     
-    # Mapeamento Tabela 14 - Reais
-    real_files = {
-        'airlines': 'airlines.arff',
-        'electricity': 'elecNormNew.arff', # ou electricity.arff
-        'elec2': 'elecNormNew.arff',
-        'airlines': 'airlines.arff',
-        'covtype': 'covtypeNorm.arff',   # 581k inst
-        'gassensor': 'gassensor.arff',   # 13k
-        'gmsc': 'GMSC.arff',             # 150k
-        'keystroke': 'keystroke.arff',   # 1.6k
-        'outdoor': 'outdoor.arff',       # 4k
-        'ozone': 'ozone.arff',           # 2.5k
-        'rialto': 'rialto.arff',         # 82k
-        'shuttle': 'shuttle.arff',       # 58k
-        'noaa': 'NOAA.arff'
+    # Mapeamento Completo
+    files = {
+        # --- Datasets Reais ---
+        'airlines':    'airlines.arff',
+        'electricity': 'elecNormNew.arff',
+        'elec2':       'elecNormNew.arff', 
+        'covtype':     'covtypeNorm.arff',
+        'gassensor':   'gassensor.arff',
+        'gmsc':        'GMSC.arff',
+        'keystroke':   'keystroke.arff',
+        'outdoor':     'outdoor.arff',
+        'ozone':       'ozone.arff',
+        'rialto':      'rialto.arff',
+        'shuttle':     'shuttle.arff',
+        'noaa':        'NOAA.arff',
+        
+        # --- Sinteticos (Gerados pelo MOA CLI) ---
+        'agrawal_a':   'agrawal_a.arff',
+        'agrawal_g':   'agrawal_g.arff',
+        'led_a':       'led_a.arff',
+        'led_g':       'led_g.arff',
+        'sea_a':       'sea_a.arff',
+        'sea_g':       'sea_g.arff',
+        'rbf_f':       'rbf_f.arff',     
+        'rbf_m':       'rbf_m.arff',     
+        'mixed_a':     'mixed.arff'      
     }
 
-    # --- 1. REAIS ---
-    if name in real_files:
-        filename = real_files[name]
+    if name in files:
+        filename = files[name]
         path = os.path.join(paim_path, filename)
         
-        # Lógica especial para Electricity se o arquivo não existir ou der erro
-        if name == 'electricity' and not os.path.exists(path):
-            # O River retorna (X_np, y_np...), então retornamos direto + [] (nominais vazios)
-            X, y, nf, nc = _load_river_dataset(datasets.Elec2())
-            return X, y, nf, nc, []
+        if not os.path.exists(path):
+            if name == 'electricity':
+                print(f"[AVISO]: {filename} nao encontrado. Usando River.datasets.Elec2().")
+                X, y, nf, nc = _load_river_dataset(datasets.Elec2())
+                return X, y, nf, nc, []
+            raise FileNotFoundError(f"Arquivo {filename} nao encontrado em {paim_path}")
 
-        if os.path.exists(path):
-            print(f"Carregando ARFF Real: {filename}...")
+        print(f"--- Carregando {filename} ---")
+        try:
+            data, meta = arff.loadarff(path)
+            df = pd.DataFrame(data)
+            
+            # 1. Decodifica bytes
+            for col in df.columns:
+                if df[col].dtype == object:
+                    df[col] = df[col].str.decode('utf-8')
+
+            # 2. Separa X e y
+            target_col = df.columns[-1]
+            X = df.drop(columns=[target_col])
+            y = df[target_col]
+
+            # 3. Tratamento do Target (Blindado)
             try:
-                data, meta = arff.loadarff(path)
-                df = pd.DataFrame(data)
-                
-                # Decode bytes
-                for col in df.columns:
-                    if df[col].dtype == object:
-                        df[col] = df[col].str.decode('utf-8')
-        
-                target_col = df.columns[-1]
-                X = df.drop(columns=[target_col])
-                y = df[target_col]
-        
-                # Tratamento de Labels (String/Bytes -> Int)
-                # Tenta converter para numérico, se falhar, usa fatorização
-                try:
-                    y = pd.to_numeric(y)
-                except:
-                    # Se for string (ex: 'UP', 'Class1'), converte para categorical codes
-                    y = pd.Categorical(y).codes
+                y = pd.to_numeric(y)
+            except:
+                y = pd.Categorical(y).codes 
+            # Se virou codes, ja eh numpy. Se eh numeric, eh Series.
 
-                # --- DETECÇÃO DE NOMINAIS ---
-                nominal_attributes = []
-                X_final = X.copy()
-        
-                for idx, col in enumerate(X.columns):
-                    # Se for object ou category, ou se tiver poucos valores únicos (heurística opcional)
-                    if X[col].dtype == object or X[col].dtype.name == 'category':
-                        nominal_attributes.append(idx)
-                        # Converte string -> int (Label Encoding) para o River processar rápido
-                        # Mas avisaremos a árvore que esse int é uma categoria!
-                        X_final[col] = pd.Categorical(X[col]).codes
-                    else:
-                        # Garante float para numéricos
-                        X_final[col] = pd.to_numeric(X_final[col], errors='coerce').fillna(0.0)
-                # Para Árvores, NÃO precisamos de One-Hot Encoding global.
-                # O Hoeffding Tree lida bem com numéricos. 
-                # Categoricos devem ser passados como dict.
-                # Aqui retornamos numpy, depois convertemos para dict no loop.
-                
-                return X.values, y.values, X.shape[1], len(np.unique(y)), nominal_attributes
-            except Exception as e:
-                print(f"Erro ao ler ARFF {filename}: {e}. Tentando fallback...")
-                # Se falhar a leitura do arquivo, tenta fallback do River para datasets conhecidos
-                pass
-    # Fallbacks de Datasets Reais Embutidos no River
-    if name == 'electricity': 
-        X, y, nf, nc = _load_river_dataset(datasets.Elec2())
-        return X, y, nf, nc, []
-    if name == 'shuttle': 
-        X, y, nf, nc = _load_river_dataset(datasets.Shuttle())
-        return X, y, nf, nc, []
-    if name == 'covtype': 
+            # 4. Tratamento das Features (X)
+            nominal_attributes = []
+            X_final = X.copy()
+
+            for idx, col in enumerate(X.columns):
+                if X[col].dtype == object or X[col].dtype.name == 'category':
+                    nominal_attributes.append(idx)
+                    X_final[col] = pd.Categorical(X[col]).codes
+                else:
+                    X_final[col] = pd.to_numeric(X_final[col], errors='coerce').fillna(0.0)
+
+            print(f"   >> {len(X_final)} instancias carregadas. Nominais detectados: {len(nominal_attributes)}")
+            
+            # --- CORRECAO SEGURA NO RETORNO ---
+            # Garante X como numpy
+            X_np = X_final.values if hasattr(X_final, 'values') else X_final
+            
+            # Garante y como numpy (trata caso Series vs Array)
+            y_np = y.values if hasattr(y, 'values') else y
+            
+            return X_np, y_np, X_np.shape[1], len(np.unique(y_np)), nominal_attributes
+
+        except Exception as e:
+            print(f"[ERRO FATAL] lendo {filename}: {e}")
+            raise
+
+    # Fallbacks River
+    if name == 'covtype_river': 
         X, y, nf, nc = _load_river_dataset(datasets.Covertype())
         return X, y, nf, nc, []
-          
-    # --- 2. SINTÉTICOS COM DRIFT (TABELA 14) ---
-    # Lógica: Drift a cada 250.000 instâncias (total 1M)
-    parts = name.split('_')
-    base_name = parts[0]
-    drift_type = parts[1] if len(parts) > 1 else 'n' # a=abrupt, g=gradual
 
-    gen_list = []
-    
-    if base_name == 'agrawal':
-        # Agrawal: 10 funções. Abrupto: troca função.
-        funcs = [0, 2, 4, 6] # Escolha arbitrária de funções distintas
-        for f in funcs: gen_list.append(synth.Agrawal(classification_function=f, seed=seed))
-            
-    elif base_name == 'led':
-        # LED: Drift de ruído ou atributos irrelevantes
-        gen_list = [
-            synth.LED(seed=seed, noise_percentage=0.0),
-            synth.LED(seed=seed, noise_percentage=0.1), # Mais ruído
-            synth.LED(seed=seed, noise_percentage=0.2),
-            synth.LED(seed=seed, noise_percentage=0.3)
-        ]
-        
-    elif base_name == 'sea':
-        # SEA: 4 funções baseadas em limiar
-        for f in range(4): gen_list.append(synth.SEA(variant=f, seed=seed))
-            
-    elif base_name == 'mixed':
-        # Mixed: Boolean functions
-        # Simula drift invertendo ou mudando algo (Mixed não tem params fáceis no River,
-        # usaremos seeds diferentes ou alternância se possível. 
-        # O River tem synth.Mixed(). Vamos alternar seeds para simular mudança).
-        gen_list = [synth.Mixed(seed=seed+i) for i in range(4)]
-
-    elif base_name == 'rbf':
-        # RBF: Centróides móveis. 
-        # O artigo cita 'f' (fast) e 'm' (moderate).
-        # No River, change_speed controla isso.
-        speed = 0.001 if drift_type == 'f' else 0.0001
-        # RBF gera drift nativamente, não precisa de blocos!
-        # Retornamos gerador direto.
-        gen = synth.RandomRBFDrift(seed_model=seed, seed_sample=seed, n_classes=5, n_features=10, n_centroids=50, change_speed=speed)
-        return _gen_to_numpy(gen, n_synthetic)
-
-    # Processamento dos Blocos (para Agrawal, SEA, LED, Mixed)
-    if gen_list:
-        if drift_type == 'n': # Sem drift
-            return _gen_to_numpy(gen_list[0], n_synthetic)
-        
-        # Com drift (Abrupto/Gradual simulado por blocos)
-        block_size = 250000
-        print(f"Gerando Sintético {name} com Drift (4 blocos de {block_size})...")
-        X_final, y_final = [], []
-        
-        # Garante que tem 4 geradores (cicla se precisar)
-        while len(gen_list) < 4: gen_list.extend(gen_list)
-        
-        for i in range(4):
-            print(f"   -> Bloco {i+1}...")
-            X_b, y_b = _gen_to_numpy(gen_list[i], block_size, ret_meta=False)
-            X_final.extend(X_b); y_final.extend(y_b)
-            
-        X_np = np.array(X_final)
-        y_np = np.array(y_final)
-        return X_np, y_np, X_np.shape[1], len(np.unique(y_np)), []
-
-    raise ValueError(f"Dataset {name} desconhecido")
+    raise ValueError(f"Dataset '{name}' desconhecido ou arquivo nao mapeado.")
 
 def _gen_to_numpy(gen, n, ret_meta=True):
     X, y = [], []
