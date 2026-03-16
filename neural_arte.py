@@ -1,0 +1,602 @@
+import torch
+from torch import nn, optim
+import numpy as np
+import pandas as pd
+import collections
+import time
+import csv
+import os
+import sys
+import argparse
+import psutil
+import datetime
+import uuid
+from scipy.io import arff
+from river import stats, utils, drift, metrics
+from river import base, stats, utils, drift, metrics, preprocessing, datasets
+from deep_river import classification
+
+# =============================================================================
+# 1. CARREGAMENTO DE DADOS (Protocolo ARFF Unificado)
+# =============================================================================
+def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
+    """
+    Carregador Universal: L� ARFFs do disco.
+    Retorna: X (numpy), y (numpy), n_features, n_classes, nominal_indices
+    """
+    name = dataset_name.lower()
+    paim_path = "/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets" 
+    
+    files = {
+        'airlines':    'airlines.arff',
+        'electricity': 'elecNormNew.arff',
+        'elec2':       'elecNormNew.arff',
+        'covtype':     'covtypeNorm.arff',
+        'gassensor':   'gassensor.arff',
+        'gmsc':        'GMSC.arff',
+        'keystroke':   'keystroke.arff',
+        'outdoor':     'outdoor.arff',
+        'ozone':       'ozone.arff',
+        'rialto':      'rialto.arff',
+        'shuttle':     'shuttle.arff',
+        'noaa':        'NOAA.arff',
+        'agrawal_a':   'agrawal_a.arff',
+        'agrawal_g':   'agrawal_g.arff',
+        'led_a':       'led_a.arff',
+        'led_g':       'led_g.arff',
+        'sea_a':       'sea_a.arff',
+        'sea_g':       'sea_g.arff',
+        'rbf_f':       'rbf_f.arff',     
+        'rbf_m':       'rbf_m.arff',     
+        'mixed_a':     'mixed.arff'      
+    }
+
+    if name not in files:
+        raise ValueError(f"Dataset '{name}' desconhecido.")
+
+    filename = files[name]
+    path = os.path.join(paim_path, filename)
+    
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Arquivo {filename} nao encontrado em {paim_path}")
+
+    print(f"--- Carregando {filename} ---")
+    try:
+        data, meta = arff.loadarff(path)
+        df = pd.DataFrame(data)
+        
+        for col in df.columns:
+            if df[col].dtype == object:
+                df[col] = df[col].str.decode('utf-8')
+
+        target_col = df.columns[-1]
+        X = df.drop(columns=[target_col])
+        y = df[target_col]
+
+        try:
+            y = pd.to_numeric(y)
+        except:
+            y = pd.Categorical(y).codes
+
+        nominal_attributes = []
+        X_final = X.copy()
+
+        for idx, col in enumerate(X.columns):
+            if X[col].dtype == object or X[col].dtype.name == 'category':
+                nominal_attributes.append(idx)
+                X_final[col] = pd.Categorical(X[col]).codes
+            else:
+                X_final[col] = pd.to_numeric(X_final[col], errors='coerce').fillna(0.0)
+
+        X_np = X_final.values if hasattr(X_final, 'values') else X_final
+        y_np = y.values if hasattr(y, 'values') else y
+        
+        return X_np, y_np, X_np.shape[1], len(np.unique(y_np)), nominal_attributes
+
+    except Exception as e:
+        print(f"[ERRO FATAL] lendo {filename}: {e}")
+        raise
+
+def apply_one_hot_encoding(X, nominal_indices):
+    """
+    Aplica OHE apenas nas colunas nominais indicadas.
+    Essencial para Redes Neurais performarem bem em datasets como Airlines.
+    """
+    if not nominal_indices:
+        return X
+
+    print(f"Aplicando One-Hot Encoding em {len(nominal_indices)} colunas...")
+    df = pd.DataFrame(X)
+    
+    # OHE nas colunas especificadas
+    # drop_first=True evita colinearidade perfeita (opcional)
+    df = pd.get_dummies(df, columns=nominal_indices, dtype=float)
+    
+    X_new = df.values.astype(np.float32)
+    print(f"   -> Expansao de Features: {X.shape[1]} -> {X_new.shape[1]}")
+    return X_new
+
+# =============================================================================
+# 2. UTILIT�RIOS (Log e Scaler)
+# =============================================================================
+def log_results_to_csv(filename, data_dict):
+    file_exists = os.path.isfile(filename)
+    with open(filename, mode='a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=data_dict.keys())
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(data_dict)
+
+class FastIncrementalScaler:
+    """Scaler Incremental Welford (Vetorizado)."""
+    def __init__(self, n_features):
+        self.n = 0
+        self.mean = np.zeros(n_features, dtype=np.float32)
+        self.M2 = np.zeros(n_features, dtype=np.float32)
+
+    def learn_one(self, x):
+        self.n += 1
+        delta = x - self.mean
+        self.mean += delta / self.n
+        delta2 = x - self.mean
+        self.M2 += delta * delta2
+
+    def transform_one(self, x):
+        if self.n < 2: return x
+        var = self.M2 / (self.n - 1)
+        std = np.sqrt(var) + 1e-8
+        return (x - self.mean) / std
+
+# =============================================================================
+# 3. REDE NEURAL E ENSEMBLE (Sua Implementa��o Otimizada)
+# =============================================================================
+class FlexibleNeuralNetwork(nn.Module):
+    def __init__(self, n_features, n_classes, hidden_layers=[32], use_cnn=False, projection_matrix=None):
+        super().__init__()
+        self.n_features = n_features
+        self.use_cnn = use_cnn
+        if projection_matrix is not None:
+            self.register_buffer('projection', projection_matrix.to(torch.float32))
+        else:
+            self.projection = None
+            
+        # Define dimens�o de entrada (com ou sem proje��o, a dimens�o � mantida ou alterada externamente)
+        # Se houver proje��o, assume-se que ela projeta de n_features -> n_features (rota��o)
+        self.in_dim = (8 * n_features) if use_cnn else n_features
+        
+        if use_cnn:
+            self.cnn_block = nn.Sequential(nn.Conv1d(1, 8, 3, padding=1), nn.ReLU(), nn.Flatten())
+        else:
+            self.cnn_block = None
+            
+        layers = []
+        curr = self.in_dim
+        for h in hidden_layers:
+            layers.append(nn.Linear(curr, h))
+            layers.append(nn.ReLU())
+            curr = h
+        layers.append(nn.Linear(curr, n_classes))
+        self.mlp_head = nn.Sequential(*layers)
+
+    def forward(self, x):
+        if x.dim() == 1: x = x.unsqueeze(0)
+        x = x.to(torch.float32)
+        
+        if self.projection is not None: 
+            x = torch.matmul(x, self.projection)
+            
+        if self.use_cnn: 
+            x = self.cnn_block(x.unsqueeze(1))
+            
+        return self.mlp_head(x)
+
+class ARTELight(base.Ensemble, base.Classifier):
+    def __init__(self, models, model_types, drift_detector, lambda_val=6, seed=42, window_size=500):
+        super().__init__(models=models)
+        self.lambda_val = lambda_val
+        self._rng = np.random.RandomState(seed)
+        self.drift_detector = drift_detector
+        
+        # Clones independentes
+        self._detectors = [drift_detector.clone() for _ in range(len(models))]
+        self._acc_windows = [utils.Rolling(stats.Mean(), window_size=window_size) for _ in range(len(models))]
+        self._total_drifts = 0
+        
+        # Instrumentação
+        self.model_types = model_types
+        self.stats_correct = {t: 0 for t in set(model_types)}
+        self.stats_drifts = {t: 0 for t in set(model_types)}
+
+    def learn_one(self, x, y):
+        # x: Tensor na GPU [feat] ou [1, feat]
+        # y: Inteiro
+        
+        # Garante dimensão de batch [1, feat] para o PyTorch
+        if isinstance(x, torch.Tensor) and x.ndim == 1:
+            x_in = x.unsqueeze(0)
+        else:
+            x_in = x
+
+        any_drift = False
+
+        for i, model in enumerate(self.models):
+            # 1. Predição para monitoramento (Test-then-Train)
+            with torch.inference_mode():
+                y_pred = model.predict_one(x_in)
+            
+            correct = (y == y_pred)
+            
+            # Atualiza stats e detectors
+            if correct: self.stats_correct[self.model_types[i]] += 1
+            self._detectors[i].update(0 if correct else 1)
+            self._acc_windows[i].update(1 if correct else 0)
+            
+            # 2. Treino (Boosting via Poisson)
+            if not correct:
+                k = self._rng.poisson(self.lambda_val)
+                if k > 0:
+                    # OTIMIZAÇÃO: Repeat na GPU ao invés de DataFrame Pandas
+                    x_boost = x_in.repeat(k, 1)
+                    y_boost = torch.tensor([y] * k, device=x_in.device, dtype=torch.long)
+                    # model.learn_many(x_boost, y_boost)
+                    # --- CORREÇÃO DE TREINO (Bypass Deep River) ---
+                    model = self.models[i]
+                    model.module.train() # Modo treino
+                    
+                    # Zera gradientes
+                    model.optimizer.zero_grad()
+                    
+                    # Forward
+                    y_pred_logits = model.module(x_boost)
+                    
+                    # Loss Calculation
+                    loss = model.loss_fn(y_pred_logits, y_boost)
+                    
+                    # Backward & Step
+                    loss.backward()
+                    model.optimizer.step()
+                    
+                    
+
+            # 3. Drift Reset
+            if self._detectors[i].drift_detected:
+                self._total_drifts += 1
+                self.stats_drifts[self.model_types[i]] += 1
+                self.models[i] = model.clone() 
+                self._detectors[i] = self.drift_detector.clone()
+                self._acc_windows[i] = utils.Rolling(stats.Mean(), window_size=100)
+                any_drift = True
+                
+        return any_drift
+
+    def learn_many(self, X, y):
+        """
+        Treinamento em Lote Otimizado (GPU).
+        X: Tensor [Batch, Features]
+        y: Tensor [Batch] (Long)
+        """
+        batch_size = X.shape[0]
+        device = X.device
+        
+        # Garante que y é LongTensor para a Loss function
+        y = y.long()
+
+        for i, model in enumerate(self.models):
+            
+            # --- 1. Predição do Lote (Bypass Deep River para velocidade) ---
+            model.module.eval()
+            with torch.no_grad():
+                logits = model.module(X)
+                # Pega a classe predita (argmax)
+                y_pred = torch.argmax(logits, dim=1)
+            
+            # --- 2. Máscara de Erros (Quem errou?) ---
+            # Retorna vetor booleano [True, False, True...]
+            incorrect_mask = (y_pred != y)
+            
+            # --- 3. Atualização de Drift e Stats (Gargalo CPU necessário) ---
+            # Infelizmente o ADWIN do River é sequencial e roda na CPU.
+            # Convertemos para numpy apenas os bits necessários para atualizar os detectores.
+            if incorrect_mask.any():
+                incorrect_cpu = incorrect_mask.cpu().numpy()
+                
+                # Loop rápido apenas para atualizar estatísticas
+                for is_incorrect in incorrect_cpu:
+                    val = 1 if is_incorrect else 0
+                    self._detectors[i].update(val)
+                    self._acc_windows[i].update(0 if is_incorrect else 1)
+                    
+                # Contabiliza acertos no placar global
+                # (Total do batch - Total de erros)
+                n_errors = incorrect_cpu.sum()
+                self.stats_correct[self.model_types[i]] += (batch_size - n_errors)
+
+            else:
+                # Se acertou tudo, atualiza detectors com 0
+                for _ in range(batch_size):
+                    self._detectors[i].update(0)
+                    self._acc_windows[i].update(1)
+                self.stats_correct[self.model_types[i]] += batch_size
+
+            # --- 4. Lógica de Drift (Reset) ---
+            if self._detectors[i].drift_detected:
+                self._total_drifts += 1
+                self.stats_drifts[self.model_types[i]] += 1
+                
+                # Reset do modelo (Clone limpo)
+                self.models[i] = model.clone() 
+                self._detectors[i] = self.drift_detector.clone()
+                self._acc_windows[i] = utils.Rolling(stats.Mean(), window_size=100)
+                
+                # Se houve drift, forçamos um treino com peso 1 em todo o batch
+                # para o novo modelo já nascer vendo dados
+                k_vector = torch.ones(batch_size, device=device, dtype=torch.long)
+                
+            else:
+                # --- 5. Lógica de Boosting (Vectorized Poisson) ---
+                # Queremos treinar apenas onde o modelo ERROU (conforme sua lógica original)
+                # k ~ Poisson(lambda) para cada instância
+                
+                # Gera Poisson para o lote todo
+                lambda_tensor = torch.full((batch_size,), self.lambda_val, device=device, dtype=torch.float)
+                k_raw = torch.poisson(lambda_tensor)
+                
+                # Aplica a máscara: Zera o k se o modelo acertou a instância
+                # k = Poisson se errou, 0 se acertou
+                k_vector = (k_raw * incorrect_mask.float()).long()
+
+            # --- 6. Treino Efetivo (Backpropagation) ---
+            # Se a soma de k for 0, ninguém precisa de treino nesse lote -> Pula
+            if k_vector.sum() > 0:
+                
+                # OVERSAMPLING NA GPU (Repetição eficiente)
+                # Se k=[0, 2, 1], repetimos a instância 2 duas vezes e a 3 uma vez.
+                X_train = torch.repeat_interleave(X, k_vector, dim=0)
+                y_train = torch.repeat_interleave(y, k_vector, dim=0)
+                
+                # Setup do Treino
+                model.module.train()
+                model.optimizer.zero_grad()
+                
+                # Forward Pass
+                logits_train = model.module(X_train)
+                loss = model.loss_fn(logits_train, y_train)
+                
+                # Backward Pass
+                loss.backward()
+                model.optimizer.step()
+                
+    @torch.inference_mode()
+    def predict_proba_one(self, x):
+        # x: Tensor na GPU [1, n_feat]
+        if isinstance(x, torch.Tensor) and x.ndim == 1:
+            x = x.unsqueeze(0)
+
+        # Lógica de Votação Dinâmica
+        accs = [w.get() for w in self._acc_windows]
+        avg = sum(accs)/len(accs) if accs else 0
+        idx = [i for i, a in enumerate(accs) if a >= avg] or range(len(self.models))
+        
+        votes = collections.Counter()
+        
+        for i in idx:
+            model = self.models[i]
+            
+            # --- CORREÇÃO DO ERRO ---
+            # Bypass no wrapper do Deep River. Chamamos a rede (module) diretamente.
+            # O wrapper deep_river.Classifier guarda a rede em self.module
+            
+            # Garante modo de avaliação
+            model.module.eval()
+            
+            # Inferência direta (Rápida!)
+            # A rede retorna logits (raw scores). Precisamos aplicar Softmax.
+            logits = model.module(x) 
+            proba_tensor = torch.softmax(logits, dim=1)
+            
+            # Extrai probabilidades para CPU (necessário para o Counter do Python)
+            # Como é binary/multiclass, pegamos a lista de probabilidades
+            probas = proba_tensor.cpu().numpy()[0]
+            
+            # Mapeia índice -> probabilidade (0: p0, 1: p1...)
+            # Assume classes 0, 1, 2... ordenadas
+            for class_idx, prob_val in enumerate(probas):
+                votes[class_idx] += prob_val / len(idx)
+                
+        return votes
+
+    @torch.inference_mode()
+    def predict_one(self, x):
+        """
+        Retorna a classe final (Hard Label) baseada na agregação de probabilidades.
+        O main não precisa saber como isso é calculado.
+        """
+        y_proba = self.predict_proba_one(x)
+        if y_proba:
+            return max(y_proba, key=y_proba.get)
+        return 0 # Fallback
+        
+    @property
+    def total_drifts(self): 
+        return self._total_drifts
+
+# =============================================================================
+# 4. EXECU��O
+# =============================================================================
+def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, batch_size=32):
+    
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"--- Iniciando Neural ARTE (GPU: {device}) ---")
+    
+    # 1. Carrega Dados (ARFF)
+    try:
+        X_all, y_all, n_feat_raw, n_classes, nom_indices = get_dataset_universal(dataset, seed=seed)
+    except Exception as e:
+        print(f"Erro carregando dataset: {e}")
+        return
+
+    # 2. Pr�-processamento OHE (Fundamental para MLPs)
+    if nom_indices:
+        X_all = apply_one_hot_encoding(X_all, nom_indices)
+    
+    n_feat = X_all.shape[1]
+    print(f"Dataset: {dataset} | Inst: {len(X_all)} | Feat: {n_feat} | Classes: {n_classes}")
+
+    # 3. Configura��o do Ensemble (H�brido: MLP Simples + MLP Projetada)
+    loss_f = nn.CrossEntropyLoss()
+    ensemble_list = []
+    model_types_list = []
+    torch.manual_seed(seed)
+    
+    n_pure = n_models // 2 # Metade Simples, Metade Projetada (POV)
+
+    for i in range(n_models):
+        if i < n_pure:
+            m_type = "MLP_Simple"
+            # Arquitetura leve para velocidade
+            cfg = {"opt": optim.SGD, "lr": 0.05, "layers": [64, 32], "proj": False}          
+        else:
+            m_type = "MLP_Proj"
+            # Adam converge mais r�pido com proje��es aleat�rias
+            cfg = {"opt": optim.Adam, "lr": 0.005, "layers": [128, 64], "proj": True}
+        
+        # Gera matriz de proje��o ortogonal (Rotation)
+        proj = torch.randn(n_feat, n_feat) if cfg["proj"] else None
+        if proj is not None: 
+            proj, _ = torch.linalg.qr(proj) 
+
+        # Wrapper Deep River (mas usamos o m�dulo direto no loop)
+        m = classification.Classifier(
+            module=FlexibleNeuralNetwork(n_feat, n_classes, cfg["layers"], False, proj),
+            loss_fn=loss_f, 
+            optimizer_fn=cfg["opt"], 
+            lr=cfg["lr"], 
+            device=device,
+            is_feature_incremental=False
+        )
+        ensemble_list.append(m)
+        model_types_list.append(m_type)
+
+    model = ARTELight(
+        models=ensemble_list, 
+        model_types=model_types_list, 
+        drift_detector=drift.ADWIN(delta=0.001), 
+        lambda_val=lambda_val, 
+        seed=seed,
+        window_size=window_size
+    )
+
+    # 4. M�tricas e Log
+    metric_acc = metrics.Accuracy()
+    metric_kappa = metrics.CohenKappa()
+    metric_gmean = metrics.GeometricMean()
+    
+    # Scaler Incremental (Essencial para convergir SGD/Adam)
+    scaler = FastIncrementalScaler(n_feat)
+    
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = str(uuid.uuid4())[:8]
+    output_file = f"results/neural/NeuralARTE_{dataset}_s{seed}_{timestamp}.csv"
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    
+    print(f"Salvando em: {output_file}")
+    
+    # Buffers
+    buffer_x, buffer_y = [], []
+    latencies = []
+    start_total = time.time()
+    
+    def save_snapshot(current_count, force=False):
+        ram = psutil.Process().memory_info().rss / (1024 * 1024)
+        vram = torch.cuda.memory_allocated() / (1024*1024) if torch.cuda.is_available() else 0
+        
+        avg_lat = 0.0
+        if latencies:
+            slice_size = min(len(latencies), 2000)
+            avg_lat = sum(latencies[-slice_size:]) / slice_size
+
+        stats_dict = {
+            "Run_ID": run_id,
+            "Time": datetime.datetime.now().strftime("%H:%M:%S"),
+            "Instancia": current_count,
+            "Dataset": dataset,
+            "Accuracy": metric_acc.get(),
+            "Kappa": metric_kappa.get(),
+            "GMean": metric_gmean.get(),
+            "Latencia_ms": avg_lat,
+            "Drifts": model.total_drifts,
+            "RAM_MB": ram,
+            "VRAM_MB": vram
+        }
+        log_results_to_csv(output_file, stats_dict)
+        if force or current_count % 10000 == 0:
+            print(f"[{dataset}] Inst: {current_count} | Acc: {metric_acc.get():.2%} | Kappa: {metric_kappa.get():.2f} | Drifts: {model.total_drifts} | RAM: {ram:.0f}MB")
+
+    # --- LOOP PRINCIPAL ---
+    log_interval = 2000
+    
+    for count in range(len(X_all)):
+        x_raw = X_all[count]
+        y = int(y_all[count])
+        
+        t0 = time.perf_counter()
+        
+        # 1. Scale
+        scaler.learn_one(x_raw)
+        x_scaled = scaler.transform_one(x_raw)
+        
+        # 2. Predict (Tensor na GPU)
+        x_tensor = torch.tensor(x_scaled, device=device, dtype=torch.float32)
+        y_pred = model.predict_one(x_tensor)
+        
+        t_pred = time.perf_counter() - t0
+        
+        # 3. Update Metrics
+        metric_acc.update(y, y_pred)
+        metric_kappa.update(y, y_pred)
+        metric_gmean.update(y, y_pred)
+        
+        # 4. Buffer para Treino
+        buffer_x.append(x_scaled)
+        buffer_y.append(y)
+        
+        if len(buffer_x) >= batch_size:
+            t1 = time.perf_counter()
+            
+            t_x = torch.tensor(np.array(buffer_x), dtype=torch.float32, device=device)
+            t_y = torch.tensor(buffer_y, dtype=torch.long, device=device)
+            
+            model.learn_many(t_x, t_y)
+            
+            buffer_x, buffer_y = [], []
+            t_learn = time.perf_counter() - t1
+            
+            # Lat�ncia = (Pred + Scale) + (Learn / Batch_Size)
+            lat = (t_pred + (t_learn / batch_size)) * 1000
+            latencies.append(lat)
+        else:
+            # Se n�o treinou, lat�ncia � s� predi��o
+            latencies.append(t_pred * 1000)
+
+        # 5. Log
+        if (count + 1) % log_interval == 0:
+            save_snapshot(count + 1)
+            
+    # Log Final For�ado
+    if len(X_all) % log_interval != 0:
+        save_snapshot(len(X_all), force=True)
+
+    print(f" Fim {dataset}. Tempo Total: {(time.time() - start_total):.1f}s | Acc: {metric_acc.get():.2%}")
+
+if __name__ == "__main__":
+    # Exemplo de uso via CLI ou chamada direta
+    # python3 main_neural_arte.py --dataset agrawal_a
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='elec2')
+    parser.add_argument('--seed', type=int, default=1)
+    parser.add_argument('--n_models', type=int, default=100) # Para comparar com ARTE CPU
+    parser.add_argument('--lambda_val', type=int, default=6)
+    parser.add_argument('--window', type=int, default=500)
+    args = parser.parse_args()
+    
+    main_neural_arte(args.dataset, args.seed, args.n_models, args.lambda_val, args.window) 
