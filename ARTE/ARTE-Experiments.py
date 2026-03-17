@@ -160,7 +160,7 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser(description='Rodar Experimento ARTE Original CPU')
         parser.add_argument('--dataset', type=str, required=True, help='Nome do Dataset (ex: airlines, sea_a)')
         parser.add_argument('--seed', type=int, default=123456789, help='Seed aleatoria')
-        parser.add_argument('--n_models', type=int, default=50, help='Numero de arvores')
+        parser.add_argument('--n_models', type=int, default=100, help='Numero de arvores')
         parser.add_argument('--window_size', type=int, default=500, help='Janela de acuracia')
         
         args = parser.parse_args()
