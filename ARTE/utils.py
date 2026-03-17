@@ -5,6 +5,11 @@ from scipy.io import arff
 from river import datasets
 
 # =============================================================================
+# CONFIGURAÇÃO DE AMBIENTE — ajuste para local ou servidor remoto
+# =============================================================================
+DATASETS_PATH = "/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets"
+
+# =============================================================================
 # 3. UTILS DE LOGGING
 # =============================================================================
 def log_results_to_csv(filename, stats_dict):
@@ -21,8 +26,7 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
     Retorna: X (numpy), y (numpy), n_features, n_classes, nominal_indices
     """
     name = dataset_name.lower()
-    paim_path = "/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets" 
-    
+
     # Mapeamento Completo
     files = {
         # --- Datasets Reais ---
@@ -48,19 +52,18 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
         'sea_g':       'sea_g.arff',
         'rbf_f':       'rbf_f.arff',     
         'rbf_m':       'rbf_m.arff',     
-        'mixed_a':     'mixed.arff'      
     }
 
     if name in files:
         filename = files[name]
-        path = os.path.join(paim_path, filename)
-        
+        path = os.path.join(DATASETS_PATH, filename)
+
         if not os.path.exists(path):
             if name == 'electricity':
                 print(f"[AVISO]: {filename} nao encontrado. Usando River.datasets.Elec2().")
                 X, y, nf, nc = _load_river_dataset(datasets.Elec2())
                 return X, y, nf, nc, []
-            raise FileNotFoundError(f"Arquivo {filename} nao encontrado em {paim_path}")
+            raise FileNotFoundError(f"Arquivo {filename} nao encontrado em {DATASETS_PATH}")
 
         print(f"--- Carregando {filename} ---")
         try:

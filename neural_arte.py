@@ -17,6 +17,11 @@ from river import base, stats, utils, drift, metrics, preprocessing, datasets
 from deep_river import classification
 
 # =============================================================================
+# CONFIGURAÇÃO DE AMBIENTE — ajuste para local ou servidor remoto
+# =============================================================================
+DATASETS_PATH = "/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets"
+
+# =============================================================================
 # 1. CARREGAMENTO DE DADOS (Protocolo ARFF Unificado)
 # =============================================================================
 def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
@@ -25,8 +30,7 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
     Retorna: X (numpy), y (numpy), n_features, n_classes, nominal_indices
     """
     name = dataset_name.lower()
-    paim_path = "/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets" 
-    
+
     files = {
         'airlines':    'airlines.arff',
         'electricity': 'elecNormNew.arff',
@@ -46,19 +50,18 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
         'led_g':       'led_g.arff',
         'sea_a':       'sea_a.arff',
         'sea_g':       'sea_g.arff',
-        'rbf_f':       'rbf_f.arff',     
-        'rbf_m':       'rbf_m.arff',     
-        'mixed_a':     'mixed.arff'      
+        'rbf_f':       'rbf_f.arff',
+        'rbf_m':       'rbf_m.arff',
     }
 
     if name not in files:
-        raise ValueError(f"Dataset '{name}' desconhecido.")
+        raise ValueError(f"Dataset '{name}' desconhecido. Disponíveis: {list(files.keys())}")
 
     filename = files[name]
-    path = os.path.join(paim_path, filename)
-    
+    path = os.path.join(DATASETS_PATH, filename)
+
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Arquivo {filename} nao encontrado em {paim_path}")
+        raise FileNotFoundError(f"Arquivo {filename} nao encontrado em {DATASETS_PATH}")
 
     print(f"--- Carregando {filename} ---")
     try:
@@ -221,8 +224,11 @@ class ARTELight(base.Ensemble, base.Classifier):
 
         for i, model in enumerate(self.models):
             # 1. Predição para monitoramento (Test-then-Train)
+            # Bypass Deep River (que espera dict) — chama module diretamente como em predict_proba_one
+            model.module.eval()
             with torch.inference_mode():
-                y_pred = model.predict_one(x_in)
+                logits = model.module(x_in)
+                y_pred = torch.argmax(logits, dim=1).item()
             
             correct = (y == y_pred)
             
@@ -448,29 +454,28 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, batch_siz
     model_types_list = []
     torch.manual_seed(seed)
     
-    n_pure = n_models // 2 # Metade Simples, Metade Projetada (POV)
-
+    # 3 tiers heterogêneos — mesma configuração do notebook ARTELight_CNN_Projection
     for i in range(n_models):
-        if i < n_pure:
+        if i < n_models // 3:
             m_type = "MLP_Simple"
-            # Arquitetura leve para velocidade
-            cfg = {"opt": optim.SGD, "lr": 0.05, "layers": [64, 32], "proj": False}          
+            cfg = {"opt": optim.SGD,  "lr": 0.05,  "layers": [128, 64], "cnn": False, "proj": False}
+        elif i < 2 * n_models // 3:
+            m_type = "MLP_CNN"
+            cfg = {"opt": optim.Adam, "lr": 0.01,  "layers": [64],       "cnn": True,  "proj": False}
         else:
             m_type = "MLP_Proj"
-            # Adam converge mais r�pido com proje��es aleat�rias
-            cfg = {"opt": optim.Adam, "lr": 0.005, "layers": [128, 64], "proj": True}
-        
-        # Gera matriz de proje��o ortogonal (Rotation)
-        proj = torch.randn(n_feat, n_feat) if cfg["proj"] else None
-        if proj is not None: 
-            proj, _ = torch.linalg.qr(proj) 
+            cfg = {"opt": optim.Adam, "lr": 0.005, "layers": [256, 128], "cnn": False, "proj": True}
 
-        # Wrapper Deep River (mas usamos o m�dulo direto no loop)
+        # Gera matriz de projeção ortogonal apenas para o tier Proj
+        proj = torch.randn(n_feat, n_feat) if cfg["proj"] else None
+        if proj is not None:
+            proj, _ = torch.linalg.qr(proj)
+
         m = classification.Classifier(
-            module=FlexibleNeuralNetwork(n_feat, n_classes, cfg["layers"], False, proj),
-            loss_fn=loss_f, 
-            optimizer_fn=cfg["opt"], 
-            lr=cfg["lr"], 
+            module=FlexibleNeuralNetwork(n_feat, n_classes, cfg["layers"], cfg["cnn"], proj),
+            loss_fn=loss_f,
+            optimizer_fn=cfg["opt"],
+            lr=cfg["lr"],
             device=device,
             is_feature_incremental=False
         )
@@ -501,15 +506,13 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, batch_siz
     
     print(f"Salvando em: {output_file}")
     
-    # Buffers
-    buffer_x, buffer_y = [], []
     latencies = []
     start_total = time.time()
-    
+
     def save_snapshot(current_count, force=False):
         ram = psutil.Process().memory_info().rss / (1024 * 1024)
         vram = torch.cuda.memory_allocated() / (1024*1024) if torch.cuda.is_available() else 0
-        
+
         avg_lat = 0.0
         if latencies:
             slice_size = min(len(latencies), 2000)
@@ -532,57 +535,42 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, batch_siz
         if force or current_count % 10000 == 0:
             print(f"[{dataset}] Inst: {current_count} | Acc: {metric_acc.get():.2%} | Kappa: {metric_kappa.get():.2f} | Drifts: {model.total_drifts} | RAM: {ram:.0f}MB")
 
-    # --- LOOP PRINCIPAL ---
+    # --- LOOP PRINCIPAL (Test-then-Train por instância, igual ao notebook) ---
     log_interval = 2000
-    
+
     for count in range(len(X_all)):
         x_raw = X_all[count]
         y = int(y_all[count])
-        
+
         t0 = time.perf_counter()
-        
+
         # 1. Scale
         scaler.learn_one(x_raw)
         x_scaled = scaler.transform_one(x_raw)
-        
+
         # 2. Predict (Tensor na GPU)
         x_tensor = torch.tensor(x_scaled, device=device, dtype=torch.float32)
         y_pred = model.predict_one(x_tensor)
-        
+
         t_pred = time.perf_counter() - t0
-        
+
         # 3. Update Metrics
         metric_acc.update(y, y_pred)
         metric_kappa.update(y, y_pred)
         metric_gmean.update(y, y_pred)
-        
-        # 4. Buffer para Treino
-        buffer_x.append(x_scaled)
-        buffer_y.append(y)
-        
-        if len(buffer_x) >= batch_size:
-            t1 = time.perf_counter()
-            
-            t_x = torch.tensor(np.array(buffer_x), dtype=torch.float32, device=device)
-            t_y = torch.tensor(buffer_y, dtype=torch.long, device=device)
-            
-            model.learn_many(t_x, t_y)
-            
-            buffer_x, buffer_y = [], []
-            t_learn = time.perf_counter() - t1
-            
-            # Lat�ncia = (Pred + Scale) + (Learn / Batch_Size)
-            lat = (t_pred + (t_learn / batch_size)) * 1000
-            latencies.append(lat)
-        else:
-            # Se n�o treinou, lat�ncia � s� predi��o
-            latencies.append(t_pred * 1000)
+
+        # 4. Learn (instância a instância — igual ao notebook)
+        t1 = time.perf_counter()
+        model.learn_one(x_tensor, y)
+        t_learn = time.perf_counter() - t1
+
+        latencies.append((t_pred + t_learn) * 1000)
 
         # 5. Log
         if (count + 1) % log_interval == 0:
             save_snapshot(count + 1)
-            
-    # Log Final For�ado
+
+    # Log Final Forçado
     if len(X_all) % log_interval != 0:
         save_snapshot(len(X_all), force=True)
 
@@ -594,9 +582,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='elec2')
     parser.add_argument('--seed', type=int, default=1)
-    parser.add_argument('--n_models', type=int, default=100) # Para comparar com ARTE CPU
+    parser.add_argument('--n_models', type=int, default=30)
     parser.add_argument('--lambda_val', type=int, default=6)
-    parser.add_argument('--window', type=int, default=500)
+    parser.add_argument('--window', type=int, default=100)
     args = parser.parse_args()
     
-    main_neural_arte(args.dataset, args.seed, args.n_models, args.lambda_val, args.window) 
+    main_neural_arte(args.dataset, args.seed, args.n_models, args.lambda_val, args.window)
