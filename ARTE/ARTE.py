@@ -242,7 +242,6 @@ class ARTE(base.Ensemble, base.Classifier):
         lambd: float = 6.0,
         drift_detector: base.DriftDetector = None,
         window_size: int = 1000,
-        n_rejections: int = 5,
         seed: int = 1,
         k_min: int = 2
     ):
@@ -253,7 +252,6 @@ class ARTE(base.Ensemble, base.Classifier):
         self.lambd = lambd
         self.drift_detector = drift_detector or drift.ADWIN(delta=1e-3)
         self.window_size = window_size
-        self.n_rejections = n_rejections
         self.seed = seed
         self.k_min = k_min
         self._rng = np.random.RandomState(self.seed)
@@ -268,10 +266,10 @@ class ARTE(base.Ensemble, base.Classifier):
 
             # Cria árvore com Random Subspace e SEM Poda
             tree_model = ARTEHoeffdingTree(
-                subspace_size=k_init, 
-                seed=tree_seed, 
+                subspace_size=k_init,
+                seed=tree_seed,
                 nominal_attributes=self.nominal_attributes,
-                leaf_prediction='nb',
+                leaf_prediction='nba',  # NBAdaptive — default do MOA HoeffdingTree (índice 2)
                 grace_period=100,
                 delta=0.01
             )
@@ -279,7 +277,6 @@ class ARTE(base.Ensemble, base.Classifier):
             m = {
                 'model': tree_model,
                 'detector': self.drift_detector.clone(),
-                'untrained_counts': collections.defaultdict(int),
                 'window_acc': utils.Rolling(stats.Mean(), window_size=self.window_size),
                 'instances_trained': 0
             }
@@ -291,37 +288,27 @@ class ARTE(base.Ensemble, base.Classifier):
 
     def learn_one(self, x, y):
         all_accs = []
-        
+
         for m in self._ensemble_members:
-            # Predição para controle de erro e lógica de rejeição
+            # Online Bagging via Poisson — sempre sorteado, para todos os membros (fiel ao Java)
+            k = self._rng.poisson(self.lambd)
+            if k > 0:
+                # Uma única chamada com sample_weight=k (equivalente ao Java:
+                # weightedInstance.setWeight(instance.weight() * k))
+                m['model'].learn_one(x, y, sample_weight=k)
+                m['instances_trained'] += 1
+
+            # Verifica acerto APÓS o treinamento (fiel ao Java: correctlyClassifies
+            # é chamado depois de trainOnInstance dentro de ARTEBaseLearner)
             y_pred = m['model'].predict_one(x)
             correct = (y == y_pred)
-            
-            # Estratégia de Regularização Adaptativa:
-            # Para evitar que domínios com ruído dominem, treina no erro
-            # ou após N rejeições (acertos)
-            will_train = not correct
-            
-            if correct:
-                m['untrained_counts'][y] += 1
-                if self.n_rejections > 0 and m['untrained_counts'][y] >= self.n_rejections:
-                    m['untrained_counts'][y] = 0
-                    will_train = True
-            
-            if will_train:
-                # Online Bagging via Poisson
-                k = self._rng.poisson(self.lambd)
-                if k > 0:
-                    for _ in range(k):
-                        m['model'].learn_one(x, y)
-                        m['instances_trained'] += 1
-            
+
             # Detecção de Drift individual
             m['detector'].update(0 if correct else 1)
             if m['detector'].drift_detected:
                 self._total_drifts += 1
                 self._reset_member(m)
-            
+
             # Atualiza estatísticas da janela deslizante
             m['window_acc'].update(1 if correct else 0)
             all_accs.append(m['window_acc'].get())
@@ -329,7 +316,7 @@ class ARTE(base.Ensemble, base.Classifier):
         # Atualiza média global para critério de votação seletiva
         if all_accs:
             self._avg_window_acc = statistics.mean(all_accs)
-            
+
         return self
 
     def predict_proba_one(self, x):
@@ -372,15 +359,14 @@ class ARTE(base.Ensemble, base.Classifier):
         """Reinicia o modelo e estatísticas após detecção de mudança."""
         # Recria a árvore limpa
         m['model'] = ARTEHoeffdingTree(
-            subspace_size=new_k, 
-            seed=new_seed, 
+            subspace_size=new_k,
+            seed=new_seed,
             nominal_attributes=self.nominal_attributes,
-            leaf_prediction='nb',
+            leaf_prediction='nba',  # NBAdaptive — default do MOA HoeffdingTree (índice 2)
             grace_period=100,
             delta=0.01
         )
         m['detector'] = self.drift_detector.clone()
-        m['untrained_counts'].clear()
         m['window_acc'] = utils.Rolling(stats.Mean(), window_size=self.window_size)
 
     @property
