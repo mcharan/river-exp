@@ -293,9 +293,9 @@ class ARTE(base.Ensemble, base.Classifier):
             # Online Bagging via Poisson — sempre sorteado, para todos os membros (fiel ao Java)
             k = self._rng.poisson(self.lambd)
             if k > 0:
-                # Uma única chamada com sample_weight=k (equivalente ao Java:
+                # Uma única chamada com w=k (equivalente ao Java:
                 # weightedInstance.setWeight(instance.weight() * k))
-                m['model'].learn_one(x, y, sample_weight=k)
+                m['model'].learn_one(x, y, w=k)
                 m['instances_trained'] += 1
 
             # Verifica acerto APÓS o treinamento (fiel ao Java: correctlyClassifies
