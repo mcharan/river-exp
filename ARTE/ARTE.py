@@ -3,7 +3,8 @@ import collections
 import statistics
 import numpy as np
 from river import base, tree, drift, utils, stats, metrics
-from river.tree.splitter import Splitter, GaussianSplitter
+from river.tree.splitter import GaussianSplitter
+from river.tree.splitter.nominal_splitter_classif import NominalSplitterClassif
 from river.tree.nodes.htc_nodes import LeafMajorityClass, LeafNaiveBayes, LeafNaiveBayesAdaptive
 from river.tree.utils import BranchFactory
 # Tenta importar as classes de folha do local correto
@@ -60,63 +61,6 @@ class ARTEGaussianSplitter(GaussianSplitter):
             multiway_split=False
         )
 
-class ARTENominalSplitter(Splitter):
-    """
-    Implementação fiel ao ARTE para atributos nominais.
-    Herda diretamente da classe base Splitter do River.
-    Sorteia aleatoriamente um subconjunto das categorias observadas para a divisão.
-    """
-    def __init__(self, rng):
-        super().__init__()
-        self.rng = rng
-        self._stat = {}  # Dicionário para guardar contagens: {categoria: {classe: peso}}
-
-    def update(self, att_val, target_val, sample_weight):
-        # Como herdamos do Splitter base, precisamos manter o controle das categorias
-        # e de quais classes apareceram com elas.
-        if att_val not in self._stat:
-            self._stat[att_val] = {}
-        if target_val not in self._stat[att_val]:
-            self._stat[att_val][target_val] = 0.0
-        
-        self._stat[att_val][target_val] += sample_weight
-
-    def best_evaluated_split_suggestion(self, criterion, pre_split_dist, att_idx, binary_only):
-        observed_categories = list(self._stat.keys())
-        
-        # Só podemos dividir se tivermos visto pelo menos 2 categorias diferentes
-        if len(observed_categories) < 2:
-            return None
-
-        # Lógica do ARTE (Algoritmo 2): sorteio com 50% de chance para cada categoria
-        chosen_categories = [cat for cat in observed_categories if self.rng.random() > 0.5]
-        
-        # Fallback: se o sorteio colocou todas (ou nenhuma) de um lado só,
-        # forçamos a escolha de pelo menos uma categoria aleatória.
-        if len(chosen_categories) == 0 or len(chosen_categories) == len(observed_categories):
-            chosen_categories = [self.rng.choice(observed_categories)]
-
-        # Calcula a distribuição post-split (esquerdo vs direito)
-        post_split_dist = [{}, {}]
-        for cat, dist_by_class in self._stat.items():
-            side = 0 if cat in chosen_categories else 1
-            for class_val, weight in dist_by_class.items():
-                post_split_dist[side][class_val] = post_split_dist[side].get(class_val, 0) + weight
-
-        # Calcula o mérito (Gini/Hoeffding) deste split aleatório
-        merit = criterion.merit_of_split(pre_split_dist, post_split_dist)
-
-        # Escolhe uma categoria para ser o "teste" visual da árvore
-        random_test_category = self.rng.choice(observed_categories)
-
-        return BranchFactory(
-            merit=merit,
-            feature=att_idx,
-            operator='==',
-            value=random_test_category,
-            numerical_feature=False,
-            multiway_split=False
-        )
 
 # =============================================================================
 # 1. MIXIN DE SUBESPAÇO ALEATÓRIO E INJEÇÃO DE SPLITTER
@@ -165,7 +109,7 @@ class RandomSubspaceNodeMixin:
                 if is_numeric:
                     self.stats[att_id] = ARTEGaussianSplitter(rng=self.rng)
                 else:
-                    self.stats[att_id] = ARTENominalSplitter(rng=self.rng)
+                    self.stats[att_id] = NominalSplitterClassif()
         
         # 4. Passa para o River processar a atualização (vai usar o splitter que acabamos de criar)
         super().learn_one(x_subset, y, sample_weight=sample_weight, tree=tree)
