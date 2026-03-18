@@ -1,4 +1,5 @@
 import random
+import numbers
 import collections
 import statistics
 import numpy as np
@@ -36,30 +37,21 @@ class ARTEGaussianSplitter(GaussianSplitter):
     def best_evaluated_split_suggestion(self, criterion, pre_split_dist, att_idx, binary_only):
         # Equivalente ao getSplitPointSuggestions() + loop de verificação do Java
         
-        # Se não temos intervalo suficiente para sortear, retorna None
+        # Se não temos intervalo suficiente para sortear, retorna sugestão inválida
         if self._min_value >= self._max_value:
-            return None
+            return BranchFactory()
 
         # Sorteio do ponto de corte (Lógica Java: (rand * (max - min)) + min)
         split_value = self.rng.uniform(self._min_value, self._max_value)
         
-        # Cria a sugestão de ramo baseada nesse único ponto
-        # O River precisa calcular a "post_split_dist" (distribuição das classes esq/dir)
-        # O método abaixo estima isso usando as gaussianas internas
-        post_split_dist = self.cond_proba(split_value)
-        
+        # Usa o método do GaussianSplitter que lida corretamente com edge cases
+        # (zero variância, split fora do range observado por classe)
+        post_split_dist = self._class_dists_from_binary_split(split_value)
+
         # Calcula o mérito (Information Gain / Gini) deste split único
         merit = criterion.merit_of_split(pre_split_dist, post_split_dist)
         
-        # Retorna a sugestão empacotada (BranchFactory cria o objeto AttributeSplitSuggestion)
-        return BranchFactory(
-            merit=merit,
-            feature=att_idx,
-            operator='<', # NumericBinaryTest
-            value=split_value,
-            numerical_feature=True,
-            multiway_split=False
-        )
+        return BranchFactory(merit, att_idx, split_value, post_split_dist)
 
 
 # =============================================================================
@@ -77,42 +69,33 @@ class RandomSubspaceNodeMixin:
         self.rng = rng
         self.selected_features = None
 
-    def learn_one(self, x, y, *, sample_weight=1.0, tree=None):
-        # 1. Lógica de Seleção de Subespaço (Igual à sua anterior)
+    def learn_one(self, x, y, *, w=1.0, tree=None):
+        # 1. Seleção de subespaço aleatório (fixa por nó, como no Java RandomLearningNode)
         if self.selected_features is None:
             all_features = list(x.keys())
-            n_features = len(all_features)
-            k = self.subspace_size
-            if k < 0: k = n_features + k
-            k = max(1, min(k, n_features))
+            k = max(1, min(self.subspace_size, len(all_features)))
             self.selected_features = self.rng.sample(all_features, k)
 
         # 2. Filtragem de features
         x_subset = {key: x[key] for key in self.selected_features if key in x}
 
-        # 3. [NOVO] Injeção do ARTEGaussianSplitter
-        # Antes de chamar o super().learn_one, garantimos que os observadores
-        # para as features numéricas sejam da nossa classe customizada.
+        # 3. Injeção de splitters customizados em self.splitters (dict correto do River)
+        #    Feita ANTES do super().learn_one para que update_splitters use os nossos.
+        nom_attrs = tree.nominal_attributes if (tree and hasattr(tree, 'nominal_attributes')) else []
         for att_id, att_val in x_subset.items():
-            # Se o atributo ainda não tem um observador (Splitter) criado
-            if att_id not in self.stats:
-                # Verifica se é nominal (via lista de nominais da árvore se disponível ou heurística)
-                # O River geralmente trata strings como nominais automaticamente, mas aqui
-                # vamos focar em garantir que NUMÉRICOS usem nosso Splitter.
-                is_numeric = isinstance(att_val, (int, float)) and not isinstance(att_val, bool)
-                
-                # Se a árvore tiver lista de nominais explícita, usamos ela para segurança
-                if tree is not None and hasattr(tree, 'nominal_attributes') and tree.nominal_attributes:
-                     if att_id in tree.nominal_attributes:
-                         is_numeric = False
+            if att_id not in self.splitters:
+                is_nominal = (
+                    not isinstance(att_val, numbers.Number)
+                    or isinstance(att_val, bool)
+                    or att_id in nom_attrs
+                )
+                self.splitters[att_id] = (
+                    NominalSplitterClassif() if is_nominal
+                    else ARTEGaussianSplitter(rng=self.rng)
+                )
 
-                if is_numeric:
-                    self.stats[att_id] = ARTEGaussianSplitter(rng=self.rng)
-                else:
-                    self.stats[att_id] = NominalSplitterClassif()
-        
-        # 4. Passa para o River processar a atualização (vai usar o splitter que acabamos de criar)
-        super().learn_one(x_subset, y, sample_weight=sample_weight, tree=tree)
+        # 4. Delega ao River com o parâmetro correto (w, não sample_weight)
+        super().learn_one(x_subset, y, w=w, tree=tree)
 
 # =============================================================================
 # 2. CLASSES DE NÓS CONCRETAS (MC, NB, NBA)
@@ -150,26 +133,26 @@ class ARTEHoeffdingTree(tree.HoeffdingTreeClassifier):
         self.subspace_size = subspace_size
         self._rng = random.Random(seed)
         
-    def _new_learning_node(self, initial_stats=None, parent=None):
-        """
-        Sobrescreve a criação de nós para injetar nós customizados
-        que suportam Random Subspace.
-        """
-        # Define qual classe de nó usar baseado na configuração da folha
+    def _new_leaf(self, initial_stats=None, parent=None):
+        """Sobrescreve _new_leaf do River para criar nós com RandomSubspaceNodeMixin."""
+        if initial_stats is None:
+            initial_stats = {}
+        depth = 0 if parent is None else parent.depth + 1
+
         if self.leaf_prediction == 'mc':
             node_cls = ARTELeafMajorityClass
         elif self.leaf_prediction == 'nb':
             node_cls = ARTELeafNaiveBayes
-        elif self.leaf_prediction == 'nba':
+        else:  # 'nba' (default)
             node_cls = ARTELeafNaiveBayesAdaptive
-        else:
-            node_cls = ARTELeafMajorityClass
 
-        # Retorna o nó instanciado com o subspace_size e o gerador aleatório
+        # stats, depth, splitter são requeridos pelo HTLeaf (passados via **kwargs ao Mixin)
         return node_cls(
             subspace_size=self.subspace_size,
             rng=self._rng,
-            initial_stats=initial_stats
+            stats=initial_stats,
+            depth=depth,
+            splitter=self.splitter,
         )
 
 class ARTE(base.Ensemble, base.Classifier):
