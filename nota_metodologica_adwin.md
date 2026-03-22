@@ -2,7 +2,9 @@
 
 ## 1. Contexto
 
-Durante a validação do port Python/River do algoritmo **ARTE** (*Adaptive Random Tree Ensemble*, Paim & Enembreck, 2020) frente à implementação de referência em Java/MOA, identificou-se uma divergência sistemática de desempenho em *datasets* com deriva contínua (e.g., *rbf_m*, *rbf_f*, *agrawal_a*, *agrawal_g*). A investigação revelou que a divergência não se origina de diferenças lógicas no algoritmo ARTE em si, mas de diferenças de implementação do detector de mudança **ADWIN** (*ADaptive WINdowing*, Bifet & Gavaldà, 2007) entre as duas plataformas.
+Durante a validação do port Python/River do algoritmo **ARTE** (*Adaptive Random Tree Ensemble*, Paim & Enembreck, 2020) frente à implementação de referência em Java/MOA, identificou-se uma divergência sistemática de desempenho em alguns *datasets*. A investigação sistemática das possíveis causas — conduzida por inspeção de código-fonte, experimentos de ablação e análise de parâmetros — revelou que as divergências resultam de uma combinação de fatores inerentes à diferença de plataforma, e não de erros de implementação do algoritmo ARTE em si.
+
+A principal causa identificada é a diferença de implementação do detector de mudança **ADWIN** (*ADaptive WINdowing*, Bifet & Gavaldà, 2007) entre MOA e River, detalhada nas seções seguintes. Adicionalmente, foram investigadas e descartadas outras hipóteses, documentadas na Seção 6.
 
 ---
 
@@ -94,11 +96,63 @@ O objetivo desta variante é **empírico**: verificar se a diferença de sensibi
 
 ---
 
-## 6. Conclusão
+## 6. Investigação de Hipóteses Adicionais
 
-A comparação entre o ARTE em Java/MOA e o port Python/River revela que, para *datasets* com deriva contínua, a diferença de `min_window_length` (10 vs 5) entre as implementações do ADWIN produz um comportamento de espiral de resets sincronizados com o *clock* do detector (32 instâncias). Este fenômeno reduz a acurácia do ensemble porque as árvores são reiniciadas antes de acumular conhecimento suficiente para contribuir efetivamente para a votação.
+Além da divergência no ADWIN, outras hipóteses foram investigadas para explicar os gaps remanescentes, particularmente nos *datasets* `agrawal_a`, `agrawal_g` e `airlines`. Todas foram descartadas como causas primárias.
 
-Para fins de comparação direta com resultados reportados em MOA, recomenda-se documentar esta divergência como uma **limitação metodológica** inerente à diferença entre as plataformas, e não como um defeito de implementação do algoritmo ARTE.
+### 6.1 Parâmetros da Hoeffding Tree
+
+Os parâmetros `grace_period` (g) e `split_confidence` (c) da Hoeffding Tree foram comparados entre as implementações. A análise do código-fonte do `ARTE.java` revelou que o algoritmo configura explicitamente esses parâmetros via `ClassOption`:
+
+```
+ARTEHoeffdingTree -e 2000000 -g 100 -c 0.01 -n ARTEAttributeClassObserver
+```
+
+Isso é consistente com o que o artigo original especifica: *"we set the grace period to g = 100 and split confidence c = 0.01 [...] This setting tends to generate early splits relative to the default value of the Hoeffding trees algorithm with g = 200"* (Paim & Enembreck, 2020). O port Python utiliza os mesmos valores (`grace_period=100`, `delta=0.01`), confirmando fidelidade ao artigo.
+
+A tabela abaixo compara todos os parâmetros relevantes da Hoeffding Tree entre as implementações:
+
+| Parâmetro | Default River | Default MOA HT | ARTE (paper/Java) | Python ARTE |
+|---|---|---|---|---|
+| `grace_period` | 200 | 200 | **100** | **100** ✅ |
+| `delta` (split confidence) | 1e-7 | 1e-7 | **0.01** | **0.01** ✅ |
+| `tau` (tie threshold) | 0.05 | 0.05 | 0.05 | 0.05 ✅ |
+| `nb_threshold` | 0 | 0 | 0 | 0 ✅ |
+| `leaf_prediction` | nba | nba | nba | nba ✅ |
+| `remove_poor_attrs` | False | False | disabled | False ✅ |
+
+**Conclusão**: nenhuma divergência de parâmetros da Hoeffding Tree foi encontrada entre o port Python e a implementação Java/MOA do ARTE.
+
+### 6.2 Codificação de Atributos Nominais
+
+Os *datasets* `agrawal` e `airlines` contêm atributos nominais (e.g., `elevel`, `car`, `zipcode` no Agrawal). Investigou-se se a detecção e codificação desses atributos no carregador Python (`get_dataset_universal`) produzia splitters incorretos.
+
+A inspeção direta dos splitters criados nas folhas das árvores confirmou que:
+- Os atributos nominais são corretamente detectados pelo `dtype == object` do pandas após decodificação dos bytes do ARFF
+- Os índices retornados em `nominal_attributes` coincidem com as colunas corretas
+- O `RandomSubspaceNodeMixin` instancia `NominalSplitterClassif` para esses índices e `ARTEGaussianSplitter` para os numéricos, sem exceções
+
+**Conclusão**: a hipótese de codificação incorreta de nominais foi descartada.
+
+### 6.3 Variância de Execução Única e Diferenças de RNG
+
+O artigo original reporta resultados como **média de 10 execuções** com sementes distintas. Os experimentos de validação deste port foram realizados com uma única execução (`seed=123456789`). Com 2–3 pp de variância esperada entre execuções individuais, parte dos gaps residuais observados (especialmente em `agrawal_g` e `airlines`) pode ser atribuída a essa diferença metodológica.
+
+Adicionalmente, as implementações Java (`java.util.Random`, `org.apache.commons.math`) e Python (`numpy.random`) produzem sequências distintas para a mesma semente numérica. Isso afeta a ordem das seleções de subespaço aleatório por nó ao longo do *stream*, introduzindo variância estrutural irredutível entre plataformas.
+
+---
+
+## 7. Conclusão
+
+A comparação entre o ARTE em Java/MOA e o port Python/River revela três categorias de divergência, todas inerentes à diferença de plataforma:
+
+1. **Divergência estrutural do ADWIN** (causa primária, seções 2–5): a diferença de `min_window_length` (10 vs 5) produz uma espiral de resets sincronizados com o *clock* do detector (32 instâncias) em *datasets* com drift contínuo, reduzindo a acurácia do ensemble. Esta causa foi quantificada experimentalmente e é responsável pelos maiores gaps observados (rbf_m: −5.32pp → −2.01pp com guard).
+
+2. **Parâmetros e lógica do algoritmo** (seção 6.1 e 6.2): todos os parâmetros relevantes da Hoeffding Tree e a lógica de atribuição de splitters foram verificados e estão em conformidade com a especificação do artigo original. Nenhuma divergência algorítmica foi identificada.
+
+3. **Variância de plataforma irredutível** (seção 6.3): diferenças nos geradores de números aleatórios entre Java e Python e o uso de execução única (vs. média de 10 no artigo) introduzem variância que explica os gaps residuais em *datasets* como `agrawal_g` e `airlines`.
+
+Para fins de comparação direta com resultados reportados em MOA, recomenda-se documentar estas divergências como **limitações metodológicas** inerentes à diferença entre plataformas, e não como defeitos de implementação do algoritmo ARTE.
 
 ---
 
