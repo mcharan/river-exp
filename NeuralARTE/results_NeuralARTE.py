@@ -11,7 +11,7 @@ def analisar_resultados(folder_path="results/neural"):
     print(f"{'DATASET':<15} | {'ACC FINAL':<9} | {'KAPPA':<6} | {'KAPPA_M':<7} | {'DRIFTS':<6} | {'LATENCIA (ms)':<13} | {'RAM MAX (MB)':<12} | {'TEMPO TOTAL (min)'}")
     print("-" * 110)
 
-    for f in files:
+    for f in sorted(files):
         try:
             df = pd.read_csv(f)
             
