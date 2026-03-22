@@ -552,7 +552,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
             avg_lat = sum(latencies[-slice_size:]) / slice_size
 
         stats_dict = {
-            "Run_ID": run_id,
+            "Run_ID": f"{composition}_{drift_tag}",
             "Time": datetime.datetime.now().strftime("%H:%M:%S"),
             "Instancia": current_count,
             "Dataset": dataset,
