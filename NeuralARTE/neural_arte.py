@@ -93,7 +93,13 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
 
         X_np = X_final.values if hasattr(X_final, 'values') else X_final
         y_np = y.values if hasattr(y, 'values') else y
-        
+
+        # Garante labels 0-indexados contíguos (CrossEntropyLoss exige [0, n_classes-1])
+        unique_labels = np.unique(y_np)
+        if not np.array_equal(unique_labels, np.arange(len(unique_labels))):
+            label_map = {v: i for i, v in enumerate(unique_labels)}
+            y_np = np.array([label_map[v] for v in y_np])
+
         return X_np, y_np, X_np.shape[1], len(np.unique(y_np)), nominal_attributes
 
     except Exception as e:
@@ -500,9 +506,6 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     metric_kappa = metrics.CohenKappa()
     metric_gmean = metrics.GeometricMean()
     
-    # Scaler Incremental (Essencial para convergir SGD/Adam)
-    scaler = FastIncrementalScaler(n_feat)
-    
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = str(uuid.uuid4())[:8]
     output_file = f"results/neural/NeuralARTE_{dataset}_s{seed}_{timestamp}.csv"
@@ -539,21 +542,28 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
         if force or current_count % 10000 == 0:
             print(f"[{dataset}] Inst: {current_count} | Acc: {metric_acc.get():.2%} | Kappa: {metric_kappa.get():.2f} | Drifts: {model.total_drifts} | RAM: {ram:.0f}MB")
 
+    # --- PRÉ-ESCALONAMENTO E PRÉ-TENSORIZAÇÃO (elimina round-trips CPU→GPU por instância) ---
+    print("Pré-escalonando dataset...")
+    X_scaled_all = np.zeros_like(X_all, dtype=np.float32)
+    scaler_pre = FastIncrementalScaler(n_feat)
+    for i in range(len(X_all)):
+        scaler_pre.learn_one(X_all[i])
+        X_scaled_all[i] = scaler_pre.transform_one(X_all[i])
+    X_gpu = torch.tensor(X_scaled_all, device=device, dtype=torch.float32)
+    print("Pronto. Iniciando loop prequencial...")
+
     # --- LOOP PRINCIPAL (Test-then-Train por instância, igual ao notebook) ---
     log_interval = 2000
 
     for count in range(len(X_all)):
-        x_raw = X_all[count]
         y = int(y_all[count])
 
         t0 = time.perf_counter()
 
-        # 1. Scale
-        scaler.learn_one(x_raw)
-        x_scaled = scaler.transform_one(x_raw)
+        # 1. Tensor já na GPU (sem transferência por instância)
+        x_tensor = X_gpu[count]
 
-        # 2. Predict (Tensor na GPU)
-        x_tensor = torch.tensor(x_scaled, device=device, dtype=torch.float32)
+        # 2. Predict
         y_pred = model.predict_one(x_tensor)
 
         t_pred = time.perf_counter() - t0
@@ -563,7 +573,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
         metric_kappa.update(y, y_pred)
         metric_gmean.update(y, y_pred)
 
-        # 4. Learn (instância a instância — igual ao notebook)
+        # 4. Learn
         t1 = time.perf_counter()
         model.learn_one(x_tensor, y)
         t_learn = time.perf_counter() - t1
