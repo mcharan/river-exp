@@ -220,11 +220,12 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
         metric_kappa_m.update(y_t, y_pred)
 
         # --- treino online (Poisson) ---
+        # deep_river Classifier não aceita peso diretamente:
+        # simula Online Bagging chamando learn_one k=Poisson(lambda) vezes
         for m_idx, clf in enumerate(ensemble):
-            w = weights[m_idx]
-            if w > 0:
-                x_dict = {j: float(x_np[j]) for j in range(n_feat)}
-                clf.learn_one(x_dict, y_t, w=w)
+            x_dict = {j: float(x_np[j]) for j in range(n_feat)}
+            for _ in range(int(weights[m_idx])):
+                clf.learn_one(x_dict, y_t)
 
         # --- treino Meta-GNN ---
         if aggregator is not None:
