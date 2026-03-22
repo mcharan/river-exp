@@ -8,8 +8,8 @@ def analisar_resultados(folder_path="results/neural"):
     
     resumo = []
     
-    print(f"{'DATASET':<15} | {'ACC FINAL':<9} | {'KAPPA':<6} | {'DRIFTS':<6} | {'LATENCIA (ms)':<13} | {'RAM MAX (MB)':<12} | {'TEMPO TOTAL (min)'}")
-    print("-" * 100)
+    print(f"{'DATASET':<15} | {'ACC FINAL':<9} | {'KAPPA':<6} | {'KAPPA_M':<7} | {'DRIFTS':<6} | {'LATENCIA (ms)':<13} | {'RAM MAX (MB)':<12} | {'TEMPO TOTAL (min)'}")
+    print("-" * 110)
 
     for f in files:
         try:
@@ -22,6 +22,7 @@ def analisar_resultados(folder_path="results/neural"):
             # 1. Acurácia e Kappa Finais (Última linha)
             final_acc = last_row['Accuracy'] * 100
             final_kappa = last_row['Kappa']
+            final_kappa_m = last_row.get('KappaM', float('nan'))
             total_drifts = last_row['Drifts']
             
             # 2. Latência Média (Média da coluna toda)
@@ -43,7 +44,7 @@ def analisar_resultados(folder_path="results/neural"):
                     t_end += pd.Timedelta(days=1)
                 total_time_min = (t_end - t_start).total_seconds() / 60
             
-            print(f"{dataset_name:<15} | {final_acc:05.2f}%    | {final_kappa:.3f}  | {total_drifts:<6} | {avg_latency:.3f} ms      | {max_ram:.1f}       | {total_time_min:.1f}")
+            print(f"{dataset_name:<15} | {final_acc:05.2f}%    | {final_kappa:.3f}  | {final_kappa_m:.3f}   | {total_drifts:<6} | {avg_latency:.3f} ms      | {max_ram:.1f}       | {total_time_min:.1f}")
             
             # Análise de Drifts para Sintéticos (Snapshot a cada 250k)
             # Se o dataset for grande (>500k), mostra parciais

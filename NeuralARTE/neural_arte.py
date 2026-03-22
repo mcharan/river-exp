@@ -14,6 +14,9 @@ import uuid
 from scipy.io import arff
 from river import stats, utils, drift, metrics
 from river import base, stats, utils, drift, metrics, preprocessing, datasets
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ARTE'))
+from metrics import KappaM
 from deep_river import classification
 
 # =============================================================================
@@ -504,6 +507,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     # 4. M�tricas e Log
     metric_acc = metrics.Accuracy()
     metric_kappa = metrics.CohenKappa()
+    metric_kappa_m = KappaM()
     metric_gmean = metrics.GeometricMean()
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -532,6 +536,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
             "Dataset": dataset,
             "Accuracy": metric_acc.get(),
             "Kappa": metric_kappa.get(),
+            "KappaM": metric_kappa_m.get(),
             "GMean": metric_gmean.get(),
             "Latencia_ms": avg_lat,
             "Drifts": model.total_drifts,
@@ -571,6 +576,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
         # 3. Update Metrics
         metric_acc.update(y, y_pred)
         metric_kappa.update(y, y_pred)
+        metric_kappa_m.update(y, y_pred)
         metric_gmean.update(y, y_pred)
 
         # 4. Learn
