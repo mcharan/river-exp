@@ -438,14 +438,15 @@ class ARTELight(base.Ensemble, base.Classifier):
 # =============================================================================
 # 4. EXECU��O
 # =============================================================================
-def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, batch_size=32):
+def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, device=None, batch_size=32):
     
     global DATASETS_PATH
     if datasets_path:
         DATASETS_PATH = datasets_path
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"--- Iniciando Neural ARTE (GPU: {device}) ---")
+    if device is None:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"--- Iniciando Neural ARTE (device: {device}) ---")
     
     # 1. Carrega Dados (ARFF)
     try:
@@ -607,7 +608,9 @@ if __name__ == "__main__":
     parser.add_argument('--window',        type=int,   default=500)
     parser.add_argument('--datasets_path', type=str,   default=None,
                         help='Caminho para a pasta com os ARFFs. Sobrescreve o default do código.')
+    parser.add_argument('--device',        type=str,   default=None,
+                        help='Device PyTorch: cuda, cuda:0, cuda:1, cpu. Default: auto-detect.')
     args = parser.parse_args()
 
     main_neural_arte(args.dataset, args.seed, args.n_models, args.lambda_val, args.window,
-                     datasets_path=args.datasets_path)
+                     datasets_path=args.datasets_path, device=args.device)

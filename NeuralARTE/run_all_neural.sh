@@ -17,8 +17,9 @@ LOGS_DIR="$SCRIPT_DIR/results/logs"
 
 mkdir -p "$LOGS_DIR"
 
-# Datasets a executar (remova ou comente os que não quiser)
-datasets=(
+# Datasets divididos entre as duas GPUs
+# GPU 0: datasets menores/médios
+gpu0_datasets=(
     "electricity"
     "outdoor"
     "ozone"
@@ -28,6 +29,10 @@ datasets=(
     "gmsc"
     "gassensor"
     "covtype"
+)
+
+# GPU 1: datasets maiores
+gpu1_datasets=(
     "airlines"
     "sea_a"
     "sea_g"
@@ -40,13 +45,26 @@ datasets=(
 )
 
 echo "Disparando Neural ARTE em paralelo (n_models=$N_MODELS, seed=$SEED)..."
+echo "GPU 0: ${gpu0_datasets[*]}"
+echo "GPU 1: ${gpu1_datasets[*]}"
+echo ""
 
-for ds in "${datasets[@]}"; do
-    echo "Iniciando screen: neural_$ds"
+for ds in "${gpu0_datasets[@]}"; do
     LOG="$LOGS_DIR/neural_${ds}.log"
+    echo "GPU 0 — $ds"
     screen -dmS "neural_$ds" bash -c "
         cd $SCRIPT_DIR
-        $PYTHON $SCRIPT --dataset $ds --seed $SEED --n_models $N_MODELS --lambda_val $LAMBDA --window $WINDOW --datasets_path $DATASETS_PATH > $LOG 2>&1
+        CUDA_VISIBLE_DEVICES=0 $PYTHON $SCRIPT --dataset $ds --seed $SEED --n_models $N_MODELS --lambda_val $LAMBDA --window $WINDOW --datasets_path $DATASETS_PATH > $LOG 2>&1
+    "
+    sleep 2
+done
+
+for ds in "${gpu1_datasets[@]}"; do
+    LOG="$LOGS_DIR/neural_${ds}.log"
+    echo "GPU 1 — $ds"
+    screen -dmS "neural_$ds" bash -c "
+        cd $SCRIPT_DIR
+        CUDA_VISIBLE_DEVICES=1 $PYTHON $SCRIPT --dataset $ds --seed $SEED --n_models $N_MODELS --lambda_val $LAMBDA --window $WINDOW --datasets_path $DATASETS_PATH > $LOG 2>&1
     "
     sleep 2
 done
