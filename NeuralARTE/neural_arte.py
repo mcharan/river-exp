@@ -438,7 +438,34 @@ class ARTELight(base.Ensemble, base.Classifier):
 # =============================================================================
 # 4. EXECU��O
 # =============================================================================
-def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, device=None, batch_size=32, use_projection=True):
+class NoDriftDetector:
+    """Detector nulo — nunca dispara drift. Permite medir adaptação natural das redes."""
+    def update(self, x): pass
+    def clone(self): return NoDriftDetector()
+    @property
+    def drift_detected(self): return False
+
+
+# Presets de composição do ensemble
+COMPOSITIONS = {
+    "current": [
+        # MLP_Simple + MLP_CNN + MLP_Proj (configuração atual)
+        {"type": "MLP_Simple", "opt": optim.SGD,  "lr": 0.05,  "layers": [128, 64], "cnn": False, "proj": False},
+        {"type": "MLP_CNN",    "opt": optim.Adam, "lr": 0.01,  "layers": [64],       "cnn": True,  "proj": False},
+        {"type": "MLP_Proj",   "opt": optim.Adam, "lr": 0.005, "layers": [256, 128], "cnn": False, "proj": True},
+    ],
+    "abc": [
+        # A: "Veloz"      — SGD, LR alto, raso   → reage rápido a drifts abruptos
+        {"type": "MLP_Fast",  "opt": optim.SGD,  "lr": 0.05,  "layers": [64],        "cnn": False, "proj": False},
+        # B: "Analítico"  — Adam, LR baixo, profundo → aprende fronteiras complexas
+        {"type": "MLP_Deep",  "opt": optim.Adam, "lr": 0.001, "layers": [256, 128, 64], "cnn": False, "proj": False},
+        # C: "Equilibrado" — Adam, LR médio, médio → robusto geral
+        {"type": "MLP_Mid",   "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],   "cnn": False, "proj": False},
+    ],
+}
+
+
+def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, device=None, batch_size=32, use_projection=True, composition="current", use_drift=True):
     
     global DATASETS_PATH
     if datasets_path:
@@ -462,25 +489,18 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     n_feat = X_all.shape[1]
     print(f"Dataset: {dataset} | Inst: {len(X_all)} | Feat: {n_feat} | Classes: {n_classes}")
 
-    # 3. Configura��o do Ensemble (H�brido: MLP Simples + MLP Projetada)
+    # 3. Configuração do Ensemble
+    tiers = COMPOSITIONS.get(composition, COMPOSITIONS["current"])
+    n_tiers = len(tiers)
     loss_f = nn.CrossEntropyLoss()
     ensemble_list = []
     model_types_list = []
     torch.manual_seed(seed)
-    
-    # 3 tiers heterogêneos — mesma configuração do notebook ARTELight_CNN_Projection
-    for i in range(n_models):
-        if i < n_models // 3:
-            m_type = "MLP_Simple"
-            cfg = {"opt": optim.SGD,  "lr": 0.05,  "layers": [128, 64], "cnn": False, "proj": False}
-        elif i < 2 * n_models // 3:
-            m_type = "MLP_CNN"
-            cfg = {"opt": optim.Adam, "lr": 0.01,  "layers": [64],       "cnn": True,  "proj": False}
-        else:
-            m_type = "MLP_Proj"
-            cfg = {"opt": optim.Adam, "lr": 0.005, "layers": [256, 128], "cnn": False, "proj": True}
 
-        # Gera matriz de projeção ortogonal apenas para o tier Proj (se habilitado)
+    print(f"Composição: {composition} | Drift detector: {'ADWIN' if use_drift else 'desativado'}")
+
+    for i in range(n_models):
+        cfg = tiers[i % n_tiers]
         proj = torch.randn(n_feat, n_feat) if (cfg["proj"] and use_projection) else None
         if proj is not None:
             proj, _ = torch.linalg.qr(proj)
@@ -494,13 +514,14 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
             is_feature_incremental=False
         )
         ensemble_list.append(m)
-        model_types_list.append(m_type)
+        model_types_list.append(cfg["type"])
 
+    detector = drift.ADWIN(delta=0.001) if use_drift else NoDriftDetector()
     model = ARTELight(
-        models=ensemble_list, 
-        model_types=model_types_list, 
-        drift_detector=drift.ADWIN(delta=0.001), 
-        lambda_val=lambda_val, 
+        models=ensemble_list,
+        model_types=model_types_list,
+        drift_detector=detector,
+        lambda_val=lambda_val,
         seed=seed,
         window_size=window_size
     )
@@ -512,8 +533,8 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     metric_gmean = metrics.GeometricMean()
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_id = str(uuid.uuid4())[:8]
-    output_file = f"results/neural/NeuralARTE_{dataset}_s{seed}_{timestamp}.csv"
+    drift_tag = "nodrift" if not use_drift else "adwin"
+    output_file = f"results/neural/NeuralARTE_{dataset}_{composition}_{drift_tag}_s{seed}_{timestamp}.csv"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     print(f"Salvando em: {output_file}")
@@ -611,9 +632,16 @@ if __name__ == "__main__":
     parser.add_argument('--device',        type=str,   default=None,
                         help='Device PyTorch: cuda, cuda:0, cuda:1, cpu. Default: auto-detect.')
     parser.add_argument('--no_projection', action='store_true',
-                        help='Desativa projeção ortogonal no tier MLP_Proj (para comparação ablativa).')
+                        help='Desativa projeção ortogonal no tier MLP_Proj.')
+    parser.add_argument('--composition',   type=str,   default='current',
+                        choices=list(COMPOSITIONS.keys()),
+                        help='Composição do ensemble: current (padrão) | abc (Veloz+Analítico+Equilibrado).')
+    parser.add_argument('--no_drift',      action='store_true',
+                        help='Desativa detector de drift (mede adaptação natural das redes).')
     args = parser.parse_args()
 
     main_neural_arte(args.dataset, args.seed, args.n_models, args.lambda_val, args.window,
                      datasets_path=args.datasets_path, device=args.device,
-                     use_projection=not args.no_projection)
+                     use_projection=not args.no_projection,
+                     composition=args.composition,
+                     use_drift=not args.no_drift)
