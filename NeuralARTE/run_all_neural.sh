@@ -5,13 +5,14 @@
 
 PYTHON="/home/marcelo.charan1/anaconda3/envs/deep-river-demo/bin/python"
 SCRIPT_DIR="/home/marcelo.charan1/Documents/river-exp"
-SCRIPT="$SCRIPT_DIR/neural_arte.py"
+SCRIPT="$SCRIPT_DIR/NeuralARTE/neural_arte.py"
 
 # Ajuste conforme necessário
 N_MODELS=30
 SEED=123456789
 LAMBDA=6
 WINDOW=500
+DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets"
 
 # Datasets a executar (remova ou comente os que não quiser)
 datasets=(
@@ -41,7 +42,7 @@ for ds in "${datasets[@]}"; do
     echo "Iniciando screen: neural_$ds"
     screen -dmS "neural_$ds" bash -c "
         cd $SCRIPT_DIR
-        $PYTHON $SCRIPT --dataset $ds --seed $SEED --n_models $N_MODELS --lambda_val $LAMBDA --window $WINDOW
+        $PYTHON $SCRIPT --dataset $ds --seed $SEED --n_models $N_MODELS --lambda_val $LAMBDA --window $WINDOW --datasets_path $DATASETS_PATH
         exec bash
     "
     sleep 2
