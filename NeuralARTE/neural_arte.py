@@ -438,7 +438,7 @@ class ARTELight(base.Ensemble, base.Classifier):
 # =============================================================================
 # 4. EXECU��O
 # =============================================================================
-def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, device=None, batch_size=32):
+def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, device=None, batch_size=32, use_projection=True):
     
     global DATASETS_PATH
     if datasets_path:
@@ -480,8 +480,8 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
             m_type = "MLP_Proj"
             cfg = {"opt": optim.Adam, "lr": 0.005, "layers": [256, 128], "cnn": False, "proj": True}
 
-        # Gera matriz de projeção ortogonal apenas para o tier Proj
-        proj = torch.randn(n_feat, n_feat) if cfg["proj"] else None
+        # Gera matriz de projeção ortogonal apenas para o tier Proj (se habilitado)
+        proj = torch.randn(n_feat, n_feat) if (cfg["proj"] and use_projection) else None
         if proj is not None:
             proj, _ = torch.linalg.qr(proj)
 
@@ -610,7 +610,10 @@ if __name__ == "__main__":
                         help='Caminho para a pasta com os ARFFs. Sobrescreve o default do código.')
     parser.add_argument('--device',        type=str,   default=None,
                         help='Device PyTorch: cuda, cuda:0, cuda:1, cpu. Default: auto-detect.')
+    parser.add_argument('--no_projection', action='store_true',
+                        help='Desativa projeção ortogonal no tier MLP_Proj (para comparação ablativa).')
     args = parser.parse_args()
 
     main_neural_arte(args.dataset, args.seed, args.n_models, args.lambda_val, args.window,
-                     datasets_path=args.datasets_path, device=args.device)
+                     datasets_path=args.datasets_path, device=args.device,
+                     use_projection=not args.no_projection)
