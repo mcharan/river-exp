@@ -224,7 +224,7 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
             w = weights[m_idx]
             if w > 0:
                 x_dict = {j: float(x_np[j]) for j in range(n_feat)}
-                clf.learn_one(x_dict, y_t, sample_weight=w)
+                clf.learn_one(x_dict, y_t, w=w)
 
         # --- treino Meta-GNN ---
         if aggregator is not None:
