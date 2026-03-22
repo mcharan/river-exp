@@ -105,6 +105,7 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
         model = FlexibleNeuralNetwork(n_feat, n_classes, [64, 32])
         clf = classification.Classifier(
             module=model,
+            loss_fn=nn.CrossEntropyLoss(),
             optimizer_fn=optim.Adam,
             lr=0.005,
             device=dev,
@@ -189,7 +190,8 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
                 # reset modelo e detector
                 model_new = FlexibleNeuralNetwork(n_feat, n_classes, [64, 32])
                 clf_new = classification.Classifier(
-                    module=model_new, optimizer_fn=optim.Adam, lr=0.005, device=dev)
+                    module=model_new, loss_fn=nn.CrossEntropyLoss(),
+                    optimizer_fn=optim.Adam, lr=0.005, device=dev)
                 ensemble[m_idx] = clf_new
                 detectors[m_idx] = drift.ADWIN(delta=1e-3)
                 total_drifts += 1
