@@ -163,31 +163,21 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
         # --- Poisson(lambda) por modelo ---
         weights = rng.poisson(lambda_val, n_models).astype(float)
 
-        # --- coleta predições e perdas de cada modelo ---
+        # --- coleta predições de cada modelo ---
+        x_dict = {j: float(x_np[j]) for j in range(n_feat)}
         probas_list = []
-        losses_list = []
         preds_list  = []
 
         for m_idx, clf in enumerate(ensemble):
-            x_dict = {j: float(x_np[j]) for j in range(n_feat)}
-
-            # predição
             proba = clf.predict_proba_one(x_dict)
             probas_list.append([proba.get(c, 0.0) for c in range(n_classes)])
             pred_m = max(proba, key=proba.get) if proba else 0
             preds_list.append(pred_m)
 
-            # loss aproximada (cross-entropy one-hot)
-            p_true = proba.get(y_t, 1e-9)
-            loss_m = -np.log(max(p_true, 1e-9))
-            losses_list.append(loss_m)
-            last_loss[m_idx] = loss_m
-
             # drift detection
             correct = 1 if pred_m == y_t else 0
             detectors[m_idx].update(1 - correct)
             if detectors[m_idx].drift_detected:
-                # reset modelo e detector
                 model_new = FlexibleNeuralNetwork(n_feat, n_classes, [64, 32])
                 clf_new = classification.Classifier(
                     module=model_new, loss_fn=nn.CrossEntropyLoss(),
@@ -198,18 +188,20 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
                 last_drift[m_idx] = i
                 drift_flag[m_idx] = 1
             else:
-                # decai flag depois de 200 instâncias
                 if drift_flag[m_idx] and (i - last_drift[m_idx]) > 200:
                     drift_flag[m_idx] = 0
 
         # --- agregação ---
+        # last_loss usa a perda da instância ANTERIOR (sem leakage do label atual)
+        # warm-up: usa votação majoritária até o GNN ter treinado o suficiente
         t0 = time.time()
-        if aggregator is not None:
+        if aggregator is not None and i >= aggregator.update_every * 10:
             node_feats = aggregator.collect_node_features(
-                probas_list, losses_list, drift_flag)
+                probas_list, last_loss, drift_flag)
             y_pred = aggregator.predict(node_feats)
         else:
-            # votação majoritária simples
+            node_feats = aggregator.collect_node_features(
+                probas_list, last_loss, drift_flag) if aggregator is not None else None
             votes = collections.Counter(preds_list)
             y_pred = votes.most_common(1)[0][0]
         lat_ms = (time.time() - t0) * 1000
@@ -223,12 +215,16 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
         # deep_river Classifier não aceita peso diretamente:
         # simula Online Bagging chamando learn_one k=Poisson(lambda) vezes
         for m_idx, clf in enumerate(ensemble):
-            x_dict = {j: float(x_np[j]) for j in range(n_feat)}
             for _ in range(int(weights[m_idx])):
                 clf.learn_one(x_dict, y_t)
 
+        # --- atualiza last_loss com label revelado (para próxima instância) ---
+        for m_idx in range(n_models):
+            p_true = probas_list[m_idx][y_t] if y_t < n_classes else 1e-9
+            last_loss[m_idx] = -np.log(max(p_true, 1e-9))
+
         # --- treino Meta-GNN ---
-        if aggregator is not None:
+        if aggregator is not None and node_feats is not None:
             aggregator.update(node_feats, y_t)
 
         # --- log periódico ---
