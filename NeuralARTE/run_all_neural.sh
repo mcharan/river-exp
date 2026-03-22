@@ -13,6 +13,9 @@ SEED=123456789
 LAMBDA=6
 WINDOW=500
 DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets"
+LOGS_DIR="$SCRIPT_DIR/results/logs"
+
+mkdir -p "$LOGS_DIR"
 
 # Datasets a executar (remova ou comente os que não quiser)
 datasets=(
@@ -40,16 +43,16 @@ echo "Disparando Neural ARTE em paralelo (n_models=$N_MODELS, seed=$SEED)..."
 
 for ds in "${datasets[@]}"; do
     echo "Iniciando screen: neural_$ds"
+    LOG="$LOGS_DIR/neural_${ds}.log"
     screen -dmS "neural_$ds" bash -c "
         cd $SCRIPT_DIR
-        $PYTHON $SCRIPT --dataset $ds --seed $SEED --n_models $N_MODELS --lambda_val $LAMBDA --window $WINDOW --datasets_path $DATASETS_PATH
-        exec bash
+        $PYTHON $SCRIPT --dataset $ds --seed $SEED --n_models $N_MODELS --lambda_val $LAMBDA --window $WINDOW --datasets_path $DATASETS_PATH > $LOG 2>&1
     "
     sleep 2
 done
 
 echo ""
 echo "Todos os experimentos disparados!"
-echo "Use 'screen -ls' para ver as sessões."
-echo "Use 'screen -r neural_<dataset>' para acompanhar."
-echo "Resultados salvos em: $SCRIPT_DIR/results/neural/"
+echo "Use 'screen -ls' para ver as sessões ativas."
+echo "Logs em tempo real: tail -f $LOGS_DIR/neural_<dataset>.log"
+echo "Resultados CSV em: $SCRIPT_DIR/results/neural/"
