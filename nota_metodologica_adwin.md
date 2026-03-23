@@ -53,6 +53,12 @@ Nos experimentos com ARTE (100 árvores, `lambda=6`, `delta=1e-3`, `seed=1234567
 - Com apenas 32 observações disponíveis, River (min=5) testa cortes como [27|5], onde `W₁` = 5 observações da árvore inexperiente com erro próximo de 1.0. MOA (min=10) não testaria esse corte por insuficiência de observações em `W₁`.
 - Resultado: River detecta um "drift" no recém-resetado detector → novo reset → novo falso positivo 32 instâncias depois → **espiral**.
 
+> **Nota de precisão matemática**: o exemplo [27|5] com n=32 ilustra a *diferença estrutural* entre as implementações (River testa esse corte, MOA não), mas matematicamente esse corte específico **não pode disparar uma detecção** com n=32 e δ=1e-3. O limiar é:
+>
+> $$m = \frac{n_0 \cdot n_1}{n_0 + n_1} = \frac{27 \times 5}{32} \approx 4.22 \qquad \Rightarrow \qquad \varepsilon_{cut} = \sqrt{\frac{\ln(4 \times 32 / 10^{-3})}{2 \times 4.22}} \approx 1.18$$
+>
+> Como os dados são binários (erros ∈ {0,1}), a diferença máxima entre médias é 1.0 < 1.18. O disparo real da espiral ocorre em janelas maiores, tipicamente nos cortes com `W₁` ∈ {8, 9}, onde o limiar cai abaixo de 1.0 para n moderado (~100–500 observações). Esses são exatamente os cortes que River testa (min=5) e MOA não testa (min=10), e explicam por que os gaps observados são múltiplos de 32 (clock ticks) mas não necessariamente iguais a 32.
+
 A análise empírica no *dataset* `rbf_m` (1.000.000 instâncias, 5 classes, deriva moderada `1e-4`) revelou:
 
 | Métrica | Valor Observado |
