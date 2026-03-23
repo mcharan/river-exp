@@ -11,8 +11,9 @@
 #   GPU 1: abc n=100  (18 datasets em paralelo)
 #
 # Uso:
-#   bash run_ablation.sh 1    # dispara onda 1
-#   bash run_ablation.sh 2    # dispara onda 2
+#   bash run_ablation.sh 1     # dispara onda 1
+#   bash run_ablation.sh 2     # dispara onda 2
+#   bash run_ablation.sh auto  # dispara onda 1 e inicia onda 2 automaticamente
 # ==============================================================================
 
 PYTHON="/home/marcelo.charan1/.conda/envs/deep-river-demo/bin/python"
@@ -109,9 +110,37 @@ elif [ "$WAVE" = "2" ]; then
     done
     echo "GPU 1 — abc n=100: ${#ALL_DATASETS[@]} experimentos disparados"
 
+elif [ "$WAVE" = "auto" ]; then
+    echo "============================================================"
+    echo " MODO AUTO: onda 1 → aguarda → onda 2"
+    echo "============================================================"
+
+    # Dispara onda 1
+    bash "$0" 1
+
+    echo ""
+    echo "Aguardando onda 1 terminar (verificando a cada 2 min)..."
+    LOG_MONITOR="$LOGS_DIR/ablation_monitor.log"
+    echo "[$(date '+%H:%M:%S')] Onda 1 disparada. Monitorando..." | tee "$LOG_MONITOR"
+
+    # Monitora até todas as sessões abc10_* e abcext_* encerrarem
+    while screen -ls | grep -qE "abc10_|abcext_"; do
+        ATIVOS=$(screen -ls | grep -cE "abc10_|abcext_")
+        echo "[$(date '+%H:%M:%S')] Onda 1: $ATIVOS sessões ativas..." | tee -a "$LOG_MONITOR"
+        sleep 120
+    done
+
+    echo "[$(date '+%H:%M:%S')] Onda 1 concluída. Disparando onda 2..." | tee -a "$LOG_MONITOR"
+
+    # Dispara onda 2
+    bash "$0" 2
+
+    echo "[$(date '+%H:%M:%S')] Onda 2 disparada." | tee -a "$LOG_MONITOR"
+
 else
-    echo "Uso: bash run_ablation.sh 1   (onda 1)"
-    echo "     bash run_ablation.sh 2   (onda 2)"
+    echo "Uso: bash run_ablation.sh 1     (onda 1)"
+    echo "     bash run_ablation.sh 2     (onda 2)"
+    echo "     bash run_ablation.sh auto  (sequência automática)"
     exit 1
 fi
 
