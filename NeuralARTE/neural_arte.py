@@ -449,18 +449,29 @@ class NoDriftDetector:
 # Presets de composição do ensemble
 COMPOSITIONS = {
     "current": [
-        # MLP_Simple + MLP_CNN + MLP_Proj (configuração atual)
-        {"type": "MLP_Simple", "opt": optim.SGD,  "lr": 0.05,  "layers": [128, 64], "cnn": False, "proj": False},
-        {"type": "MLP_CNN",    "opt": optim.Adam, "lr": 0.01,  "layers": [64],       "cnn": True,  "proj": False},
-        {"type": "MLP_Proj",   "opt": optim.Adam, "lr": 0.005, "layers": [256, 128], "cnn": False, "proj": True},
+        # MLP_Simple + MLP_CNN + MLP_Proj (configuração original)
+        {"type": "MLP_Simple", "opt": optim.SGD,  "lr": 0.05,  "layers": [128, 64],     "cnn": False, "proj": False},
+        {"type": "MLP_CNN",    "opt": optim.Adam, "lr": 0.01,  "layers": [64],           "cnn": True,  "proj": False},
+        {"type": "MLP_Proj",   "opt": optim.Adam, "lr": 0.005, "layers": [256, 128],     "cnn": False, "proj": True},
     ],
     "abc": [
-        # A: "Veloz"      — SGD, LR alto, raso   → reage rápido a drifts abruptos
-        {"type": "MLP_Fast",  "opt": optim.SGD,  "lr": 0.05,  "layers": [64],        "cnn": False, "proj": False},
-        # B: "Analítico"  — Adam, LR baixo, profundo → aprende fronteiras complexas
-        {"type": "MLP_Deep",  "opt": optim.Adam, "lr": 0.001, "layers": [256, 128, 64], "cnn": False, "proj": False},
-        # C: "Equilibrado" — Adam, LR médio, médio → robusto geral
-        {"type": "MLP_Mid",   "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],   "cnn": False, "proj": False},
+        # A: "Veloz"       — SGD, LR alto, raso        → reage rápido a drifts abruptos
+        {"type": "MLP_Fast", "opt": optim.SGD,  "lr": 0.05,  "layers": [64],           "cnn": False, "proj": False},
+        # B: "Analítico"   — Adam, LR baixo, profundo  → aprende fronteiras complexas
+        {"type": "MLP_Deep", "opt": optim.Adam, "lr": 0.001, "layers": [256, 128, 64], "cnn": False, "proj": False},
+        # C: "Equilibrado" — Adam, LR médio, médio     → robusto geral
+        {"type": "MLP_Mid",  "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": False},
+    ],
+    "abc_proj": [
+        # A sem/com projeção
+        {"type": "MLP_Fast",      "opt": optim.SGD,  "lr": 0.05,  "layers": [64],           "cnn": False, "proj": False},
+        {"type": "MLP_Fast_Proj", "opt": optim.SGD,  "lr": 0.05,  "layers": [64],           "cnn": False, "proj": True},
+        # B sem/com projeção
+        {"type": "MLP_Deep",      "opt": optim.Adam, "lr": 0.001, "layers": [256, 128, 64], "cnn": False, "proj": False},
+        {"type": "MLP_Deep_Proj", "opt": optim.Adam, "lr": 0.001, "layers": [256, 128, 64], "cnn": False, "proj": True},
+        # C sem/com projeção
+        {"type": "MLP_Mid",       "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": False},
+        {"type": "MLP_Mid_Proj",  "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": True},
     ],
 }
 
@@ -635,7 +646,7 @@ if __name__ == "__main__":
                         help='Desativa projeção ortogonal no tier MLP_Proj.')
     parser.add_argument('--composition',   type=str,   default='current',
                         choices=list(COMPOSITIONS.keys()),
-                        help='Composição do ensemble: current (padrão) | abc (Veloz+Analítico+Equilibrado).')
+                        help='Composição do ensemble: current | abc | abc_proj.')
     parser.add_argument('--no_drift',      action='store_true',
                         help='Desativa detector de drift (mede adaptação natural das redes).')
     args = parser.parse_args()
