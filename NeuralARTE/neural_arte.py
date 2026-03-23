@@ -473,6 +473,16 @@ COMPOSITIONS = {
         {"type": "MLP_Mid",       "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": False},
         {"type": "MLP_Mid_Proj",  "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": True},
     ],
+    "abc_extended": [
+        # ABC original
+        {"type": "MLP_Fast",    "opt": optim.SGD,     "lr": 0.05,  "layers": [64],           "cnn": False, "proj": False},
+        {"type": "MLP_Deep",    "opt": optim.Adam,    "lr": 0.001, "layers": [256, 128, 64], "cnn": False, "proj": False},
+        {"type": "MLP_Mid",     "opt": optim.Adam,    "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": False},
+        # D: "Largo"      — Adam, LR médio, camada larga  → mais capacidade por camada
+        {"type": "MLP_Wide",    "opt": optim.Adam,    "lr": 0.005, "layers": [512, 256],     "cnn": False, "proj": False},
+        # E: "Adaptativo" — RMSprop, LR médio, médio      → dinâmica de otimização diferente
+        {"type": "MLP_RMSprop", "opt": optim.RMSprop, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": False},
+    ],
 }
 
 
@@ -644,9 +654,9 @@ if __name__ == "__main__":
                         help='Device PyTorch: cuda, cuda:0, cuda:1, cpu. Default: auto-detect.')
     parser.add_argument('--no_projection', action='store_true',
                         help='Desativa projeção ortogonal no tier MLP_Proj.')
-    parser.add_argument('--composition',   type=str,   default='current',
+    parser.add_argument('--composition',   type=str,   default='abc',
                         choices=list(COMPOSITIONS.keys()),
-                        help='Composição do ensemble: current | abc | abc_proj.')
+                        help='Composição do ensemble: abc (padrão) | current | abc_proj | abc_extended.')
     parser.add_argument('--no_drift',      action='store_true',
                         help='Desativa detector de drift (mede adaptação natural das redes).')
     args = parser.parse_args()
