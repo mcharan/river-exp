@@ -22,18 +22,21 @@ LOGS_DIR="$SCRIPT_DIR/results/logs"
 mkdir -p "$LOGS_DIR"
 mkdir -p "$SCRIPT_DIR/results/gnn"
 
-# Datasets para prova de conceito (rápidos)
-POC_DATASETS=(
-    "electricity"
-    "outdoor"
-    "sea_g"
+# Distribuição por GPU:
+#   GPU 0: electricity (3 variantes) — dataset mais longo, GPU dedicada
+#   GPU 1: sea_g + outdoor (6 variantes)
+declare -A DATASET_GPU=(
+    ["electricity"]="0"
+    ["sea_g"]="1"
+    ["outdoor"]="1"
 )
 
 echo "Disparando GNN-ARTE (prova de conceito)..."
-echo "Datasets: ${POC_DATASETS[*]}"
+echo "GPU 0: electricity | GPU 1: sea_g + outdoor"
 echo ""
 
-for ds in "${POC_DATASETS[@]}"; do
+for ds in "electricity" "sea_g" "outdoor"; do
+    GPU="${DATASET_GPU[$ds]}"
     for variant in "baseline" "metagnn" "metagnn_knn"; do
         LOG="$LOGS_DIR/gnn_${ds}_${variant}.log"
         TAG="gnn_${ds}_${variant}"
@@ -46,10 +49,10 @@ for ds in "${POC_DATASETS[@]}"; do
             EXTRA_ARGS="--graph_type knn"
         fi
 
-        echo "  [$TAG]"
+        echo "  [$TAG] → GPU $GPU"
         screen -dmS "$TAG" bash -c "
             cd $SCRIPT_DIR
-            CUDA_VISIBLE_DEVICES=0 $PYTHON $SCRIPT \
+            CUDA_VISIBLE_DEVICES=$GPU $PYTHON $SCRIPT \
                 --dataset $ds \
                 --seed $SEED \
                 --n_models $N_MODELS \
