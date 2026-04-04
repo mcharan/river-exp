@@ -78,8 +78,10 @@ else
     DRIFT_PERIOD=12500
     WIDTH_ABRUPT=50        # já é mínimo; não reduzir mais
     WIDTH_GRADUAL=2500     # 50000 / 20
-    RBF_FAST_SPEED=".02"   # 0.001 × 20: mantém deslocamento total acumulado
-    RBF_MOD_SPEED=".002"   # 0.0001 × 20
+    # RBF: mantém a mesma velocidade do full — escalar por 20 tornaria
+    # os conceitos inteiramente inestáveis em 50k instâncias (35% acc observado)
+    RBF_FAST_SPEED=".001"
+    RBF_MOD_SPEED=".0001"
 fi
 
 # ---- Configuração do MOA ----------------------------------------------------
