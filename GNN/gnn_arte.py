@@ -145,7 +145,12 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
     total_drifts = 0
 
     # --- saída CSV ---
-    tag_gnn = "metagnn" if use_metagnn else "baseline"
+    if not use_metagnn:
+        tag_gnn = "baseline"
+    elif graph_type == "knn":
+        tag_gnn = "metagnn_knn"
+    else:
+        tag_gnn = "metagnn"
     os.makedirs("results/gnn", exist_ok=True)
     csv_path = f"results/gnn/{dataset}_{tag_gnn}_s{seed}.csv"
 
