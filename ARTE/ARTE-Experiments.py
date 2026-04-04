@@ -33,12 +33,12 @@ from river.tree.utils import BranchFactory
 # =============================================================================
 # 4. LOOP DE EXECUÇÃO (CPU)
 # =============================================================================
-def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, window_size=500, adwin_min_window=5):
-    
+def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, window_size=500, adwin_min_window=5, datasets_path=None):
+
     # 1. Carrega Dados (NumPy)
     print(f"--- Carregando {dataset} ---")
     try:
-        X_all, y_all, n_feat, n_classes, nom_indices = get_dataset_universal(dataset, seed=seed)
+        X_all, y_all, n_feat, n_classes, nom_indices = get_dataset_universal(dataset, seed=seed, datasets_path=datasets_path)
     except Exception as e:
         print(f"Erro carregando {dataset}: {e}")
         return
@@ -164,6 +164,8 @@ if __name__ == "__main__":
         parser.add_argument('--window_size', type=int, default=500, help='Janela de acuracia')
         parser.add_argument('--adwin_min_window', type=int, default=5,
                             help='min_window_length do ADWIN: 5 (River padrão) ou 10 (equivalente MOA)')
+        parser.add_argument('--datasets_path', type=str, default=None,
+                            help='Caminho para a pasta de ARFFs (sobrescreve DATASETS_PATH do utils)')
 
         args = parser.parse_args()
 
@@ -174,6 +176,7 @@ if __name__ == "__main__":
             lambda_val=6.0,
             window_size=args.window_size,
             adwin_min_window=args.adwin_min_window,
+            datasets_path=args.datasets_path,
         )
     else:
         # Exemplo de chamada para reproduzir experimentos
