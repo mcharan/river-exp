@@ -233,8 +233,13 @@ class ARTE(base.Ensemble, base.Classifier):
             correct = (y == y_pred)
 
             # Detecção de Drift individual
+            # Equivalente ao ADWINChangeDetector do MOA: só reseta quando o erro
+            # AUMENTOU (estimation > ErrEstim antes do update). Isso evita o cascade
+            # pós-reset, onde a melhora da árvore recém-criada era interpretada como
+            # drift pelo River (que dispara em qualquer direção).
+            prev_estimation = m['detector'].estimation
             m['detector'].update(0 if correct else 1)
-            if m['detector'].drift_detected:
+            if m['detector'].drift_detected and m['detector'].estimation > prev_estimation:
                 self._total_drifts += 1
                 self._reset_member(m)
 
