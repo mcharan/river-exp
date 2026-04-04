@@ -3,8 +3,10 @@
 # Comparação ADWIN min_window_length=5 (River padrão) vs =10 (equivalente MOA)
 #
 # Uso:
-#   bash run_mw_comparison.sh            # full (1M inst) — datasets padrão
-#   bash run_mw_comparison.sh mini       # reduced (50k inst) — datasets mini
+#   bash run_mw_comparison.sh                              # full, todos os sintéticos
+#   bash run_mw_comparison.sh mini                         # reduced (50k inst)
+#   bash run_mw_comparison.sh full rbf_m rbf_f agrawal_a  # full, datasets específicos
+#   bash run_mw_comparison.sh mini sea_a sea_g             # mini, datasets específicos
 #
 # Resultados em: results/original/ARTE_CPU_{dataset}_mw{5|10}_s{seed}_{ts}.csv
 # ==============================================================================
@@ -19,15 +21,21 @@ N_MODELS=100
 WINDOW=500
 
 MODE="${1:-full}"
+shift  # remove o argumento de modo; o restante são datasets opcionais
+
+ALL_SYNTHETIC=("rbf_m" "rbf_f" "agrawal_a" "agrawal_g" "led_a" "led_g" "sea_a" "sea_g" "mixed_a" "mixed_g")
 
 if [ "$MODE" = "mini" ]; then
     DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets/mini"
-    # Datasets prioritários para validação rápida (maior discrepância MOA vs River)
-    DATASETS=("rbf_m" "rbf_f" "agrawal_a" "agrawal_g" "led_a" "led_g" "sea_a" "sea_g" "mixed_a" "mixed_g")
 else
     DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets"
-    # Todos os sintéticos (datasets reais não têm referência MOA para comparação de mw)
-    DATASETS=("rbf_m" "rbf_f" "agrawal_a" "agrawal_g" "led_a" "led_g" "sea_a" "sea_g" "mixed_a" "mixed_g")
+fi
+
+# Se foram passados datasets específicos, usa-os; senão usa todos os sintéticos
+if [ $# -gt 0 ]; then
+    DATASETS=("$@")
+else
+    DATASETS=("${ALL_SYNTHETIC[@]}")
 fi
 
 mkdir -p "$LOGS_DIR"
