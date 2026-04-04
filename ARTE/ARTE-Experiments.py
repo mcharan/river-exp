@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy.io import arff
 from metrics import KappaM
-from ARTE import ARTE
+from ARTE import ARTE, ADWINChangeDetector
 from utils import log_results_to_csv, get_dataset_universal
 from river import base, tree, drift, utils, stats, metrics, datasets
 from river.datasets import synth
@@ -54,7 +54,7 @@ def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, windo
         n_models=n_models,
         lambd=lambda_val,
         window_size=window_size, # W=500 conforme paper
-        drift_detector=drift.ADWIN(delta=0.001, min_window_length=adwin_min_window),
+        drift_detector=ADWINChangeDetector(delta=0.001, min_window_length=adwin_min_window),
         seed=seed,
         k_min=2
     )
