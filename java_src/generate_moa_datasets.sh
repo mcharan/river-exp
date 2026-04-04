@@ -212,12 +212,12 @@ $JAVA_CMD "WriteStreamToARFFFile -f $OUTPUT_DIR/sea_g.arff -m $N_INSTANCES \
 echo "Gerando mixed_a.arff..."
 $JAVA_CMD "WriteStreamToARFFFile -f $OUTPUT_DIR/mixed_a.arff -m $N_INSTANCES \
  -s (ConceptDriftStream \
-      -s (generators.MixedGenerator -f 0) \
+      -s (generators.MixedGenerator -f 1) \
       -d (ConceptDriftStream \
-           -s (generators.MixedGenerator -f 1) \
+           -s (generators.MixedGenerator -f 2) \
            -d (ConceptDriftStream \
-                -s (generators.MixedGenerator -f 0) \
-                -d (generators.MixedGenerator -f 1) \
+                -s (generators.MixedGenerator -f 1) \
+                -d (generators.MixedGenerator -f 2) \
                 -w $WIDTH_ABRUPT -p $DRIFT_PERIOD) \
            -w $WIDTH_ABRUPT -p $DRIFT_PERIOD) \
       -w $WIDTH_ABRUPT -p $DRIFT_PERIOD)"
@@ -225,12 +225,12 @@ $JAVA_CMD "WriteStreamToARFFFile -f $OUTPUT_DIR/mixed_a.arff -m $N_INSTANCES \
 echo "Gerando mixed_g.arff..."
 $JAVA_CMD "WriteStreamToARFFFile -f $OUTPUT_DIR/mixed_g.arff -m $N_INSTANCES \
  -s (ConceptDriftStream \
-      -s (generators.MixedGenerator -f 0) \
+      -s (generators.MixedGenerator -f 1) \
       -d (ConceptDriftStream \
-           -s (generators.MixedGenerator -f 1) \
+           -s (generators.MixedGenerator -f 2) \
            -d (ConceptDriftStream \
-                -s (generators.MixedGenerator -f 0) \
-                -d (generators.MixedGenerator -f 1) \
+                -s (generators.MixedGenerator -f 1) \
+                -d (generators.MixedGenerator -f 2) \
                 -w $WIDTH_GRADUAL -p $DRIFT_PERIOD) \
            -w $WIDTH_GRADUAL -p $DRIFT_PERIOD) \
       -w $WIDTH_GRADUAL -p $DRIFT_PERIOD)"
