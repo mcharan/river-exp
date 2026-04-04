@@ -304,7 +304,13 @@ class MetaGNNAggregator:
         total_loss = 0.0
         for feats, label in zip(self._buf_feats, self._buf_labels):
             feats = feats.to(self.device)
-            logits = self.model(feats, self.edge_index)
+            if self.graph_type == "knn":
+                sims = torch.mm(feats[:, :self.n_classes],
+                                feats[:, :self.n_classes].T)
+                edge_index = build_knn_graph_edges(sims, k=5, device=self.device)
+            else:
+                edge_index = self.edge_index
+            logits = self.model(feats, edge_index)
             target = torch.tensor([label], dtype=torch.long, device=self.device)
             loss = self.criterion(logits, target)
             total_loss += loss
