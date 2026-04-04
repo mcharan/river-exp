@@ -82,6 +82,8 @@ class RandomSubspaceNodeMixin:
         # 3. Injeção de splitters customizados em self.splitters (dict correto do River)
         #    Feita ANTES do super().learn_one para que update_splitters use os nossos.
         nom_attrs = tree.nominal_attributes if (tree and hasattr(tree, 'nominal_attributes')) else []
+        if self.splitters is None:
+            self.splitters = {}
         for att_id, att_val in x_subset.items():
             if att_id not in self.splitters:
                 is_nominal = (
