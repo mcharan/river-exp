@@ -8,15 +8,15 @@
 #   3. metagnn_knn — MetaGNN knn graph (k=5)
 # ==============================================================================
 
-PYTHON="/home/marcelo.charan1/.conda/envs/deep-river-demo/bin/python"
-SCRIPT_DIR="/home/marcelo.charan1/Documents/river-exp"
-SCRIPT="$SCRIPT_DIR/GNN/gnn_arte.py"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PYTHON="${PYTHON:-python3}"
+SCRIPT="$SCRIPT_DIR/src/gnn/gnn_arte.py"
 
 N_MODELS=30
 SEED=123456789
 LAMBDA=6
 WINDOW=500
-DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets"
+DATASETS_PATH="${DATASETS_PATH:-/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets}"
 LOGS_DIR="$SCRIPT_DIR/results/logs"
 
 mkdir -p "$LOGS_DIR"

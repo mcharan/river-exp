@@ -16,9 +16,10 @@ import random
 import numpy as np
 import pandas as pd
 from scipy.io import arff
-from metrics import KappaM
-from ARTE import ARTE, ADWINChangeDetector
-from utils import log_results_to_csv, get_dataset_universal
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from src.shared.metrics import KappaM
+from src.arte import ARTE, ADWINChangeDetector
+from src.shared.utils import log_results_to_csv, get_dataset_universal
 from river import base, tree, drift, utils, stats, metrics, datasets
 from river.datasets import synth
 from river.tree.splitter import GaussianSplitter
@@ -68,8 +69,8 @@ def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, windo
     # Setup Arquivo
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = str(uuid.uuid4())[:8]
-    os.makedirs("results/original", exist_ok=True)
-    output_file = f"results/original/ARTE_CPU_{dataset}_mw{adwin_min_window}_s{seed}_{timestamp}.csv"
+    os.makedirs("results/arte", exist_ok=True)
+    output_file = f"results/arte/ARTE_CPU_{dataset}_mw{adwin_min_window}_s{seed}_{timestamp}.csv"
 
     print(f"Iniciando Execução CPU | Run ID: {run_id}")
     print(f"Salvando em: {output_file}")
@@ -79,31 +80,31 @@ def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, windo
 
     # Loop Instância a Instância (River Padrão)
     for count in range(len(X_all)):
-        
+
         # Prepara dados (NumPy Array -> Dict para Hoeffding Tree)
         # Hoeffding Tree precisa de nomes ou índices. Usaremos índices '0', '1'...
         x_raw = X_all[count]
         y = y_all[count]
-        
+
         # Conversão rápida para dict (gargalo do python, mas necessário para River Trees)
         x_dict = {i: x_raw[i] for i in range(n_feat)}
-        
+
         # 1. Predict
         t0 = time.perf_counter()
         y_pred = model.predict_one(x_dict)
         dur_pred = time.perf_counter() - t0
-        
+
         # 2. Metrics
         metric_acc.update(y, y_pred)
         metric_kappa.update(y, y_pred)
         metric_kappa_m.update(y, y_pred)
         metric_gmean.update(y, y_pred)
-        
+
         # 3. Learn
         t1 = time.perf_counter()
         model.learn_one(x_dict, y)
         dur_learn = time.perf_counter() - t1
-        
+
         latencies.append((dur_pred + dur_learn) * 1000) # ms
 
         # 4. Logs (a cada 2k ou 10k dependendo do tamanho)
@@ -118,7 +119,7 @@ def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, windo
                 # Pega as últimas X latências ou todas se tiver menos que o intervalo
                 slice_size = min(len(latencies), log_interval)
                 avg_lat = sum(latencies[-slice_size:]) / slice_size
-            
+
             stats_dict = {
                 "Run_ID": run_id,
                 "Time": datetime.datetime.now().strftime("%H:%M:%S"),
@@ -154,7 +155,7 @@ if __name__ == "__main__":
     # Verifica se estamos no Jupyter ou Terminal
     # O Jupyter geralmente tem 'ipykernel_launcher' ou '-f' nos argumentos
     is_jupyter = any('ipykernel' in arg or '-f' in arg for arg in sys.argv)
-    
+
     # Se rodado via linha de comando
     if not is_jupyter and len(sys.argv) > 1:
         parser = argparse.ArgumentParser(description='Rodar Experimento ARTE Original CPU')
@@ -181,7 +182,7 @@ if __name__ == "__main__":
     else:
         # Exemplo de chamada para reproduzir experimentos
         # Selecione os datasets que deseja rodar:
-    
+
         # Configuração completa para replicar a Tabela 14 do artigo original
         datasets_to_run = [
             # --- DATASETS REAIS ---
@@ -195,31 +196,30 @@ if __name__ == "__main__":
             'ozone',        # 2.5k
             'rialto',       # 82k
             'shuttle',      # 58k
-            
+
             # --- DATASETS SINTETICOS (Com Drift) ---
             # A = Abrupt, G = Gradual (simulados por blocos na get_dataset_universal)
-            
+
             'agrawal_a',    # 1M inst
             'agrawal_g',    # 1M inst
             'led_a',        # 1M inst
             'led_g',        # 1M inst
             'sea_a',        # 1M inst
             'sea_g',        # 1M inst
-            
-            # Mixed: O artigo cita Balanced e Imbalanced. 
+
+            # Mixed: O artigo cita Balanced e Imbalanced.
             # Como o gerador Mixed do River é fixo, vamos usar o padrao como 'a'
             'mixed_a',      # 1M inst
-            
+
             # RBF: O artigo cita Fast (f) e Moderate (m)
             'rbf_f',        # 1M inst (Drift rapido)
             'rbf_m'         # 1M inst (Drift moderado)
         ]
-        
+
         # Execucao em loop
         for ds in datasets_to_run:
             # Nota: seed fixa para garantir reprodutibilidade
             main_arte_cpu(dataset=ds, seed=123456789, n_models=100, window_size=500)
-    
 
 
 # In[ ]:

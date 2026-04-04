@@ -6,13 +6,13 @@
 # dispara quando o erro AUMENTA, replicando o ADWINChangeDetector.java do MOA.
 #
 # Uso:
-#   bash ARTE/run_adwin_direction_test.sh
-#   bash ARTE/run_adwin_direction_test.sh mini   # datasets reduzidos (50k)
+#   bash experiments/arte/run_adwin_direction.sh
+#   bash experiments/arte/run_adwin_direction.sh mini   # datasets reduzidos (50k)
 # ==============================================================================
 
-PYTHON="/home/marcelo.charan1/.conda/envs/deep-river-demo/bin/python"
-SCRIPT_DIR="/home/marcelo.charan1/Documents/river-exp"
-SCRIPT="$SCRIPT_DIR/ARTE/ARTE-Experiments.py"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PYTHON="${PYTHON:-python3}"
+SCRIPT="$SCRIPT_DIR/experiments/arte/run_experiments.py"
 LOGS_DIR="$SCRIPT_DIR/results/logs"
 
 SEED=123456789
@@ -23,10 +23,10 @@ MW=5   # min_window_length — mw=5 é o padrão River; a direção é o novo co
 MODE="${1:-full}"
 
 if [ "$MODE" = "mini" ]; then
-    DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets/mini"
+    DATASETS_PATH="${DATASETS_PATH:-/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets/mini}"
     RESULTS_DIR="$SCRIPT_DIR/results/adwin_direction/mini"
 else
-    DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets"
+    DATASETS_PATH="${DATASETS_PATH:-/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets}"
     RESULTS_DIR="$SCRIPT_DIR/results/adwin_direction/full"
 fi
 
@@ -69,7 +69,7 @@ for ds in "${ALL_DATASETS[@]}"; do
             > $LOG 2>&1
 
         # Move o CSV gerado para a pasta dedicada
-        mv $SCRIPT_DIR/results/original/ARTE_CPU_${ds}_mw${MW}_s${SEED}_*.csv \
+        mv $SCRIPT_DIR/results/arte/ARTE_CPU_${ds}_mw${MW}_s${SEED}_*.csv \
            $RESULTS_DIR/ 2>/dev/null
     "
     sleep 1

@@ -16,14 +16,14 @@
 #   bash run_ablation.sh auto  # dispara onda 1 e inicia onda 2 automaticamente
 # ==============================================================================
 
-PYTHON="/home/marcelo.charan1/.conda/envs/deep-river-demo/bin/python"
-SCRIPT_DIR="/home/marcelo.charan1/Documents/river-exp"
-SCRIPT="$SCRIPT_DIR/NeuralARTE/neural_arte.py"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PYTHON="${PYTHON:-python3}"
+SCRIPT="$SCRIPT_DIR/src/neural_arte/neural_arte.py"
 
 SEED=123456789
 LAMBDA=6
 WINDOW=500
-DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets"
+DATASETS_PATH="${DATASETS_PATH:-/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets}"
 LOGS_DIR="$SCRIPT_DIR/results/logs"
 
 mkdir -p "$LOGS_DIR"

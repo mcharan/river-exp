@@ -29,11 +29,10 @@ from scipy.io import arff
 from river import stats, drift, metrics
 
 # --- imports locais ----------------------------------------------------------
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ARTE'))
-from metrics import KappaM
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from src.shared.metrics import KappaM
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'NeuralARTE'))
-from neural_arte import (
+from src.neural_arte.neural_arte import (
     get_dataset_universal,
     apply_one_hot_encoding,
     log_results_to_csv,
@@ -44,7 +43,7 @@ from neural_arte import (
 
 from deep_river import classification
 
-from ensemble_gnn import MetaGNNAggregator, HAS_PYG
+from src.gnn.ensemble_gnn import MetaGNNAggregator, HAS_PYG
 
 # =============================================================================
 # CONFIGURAÇÃO
@@ -64,7 +63,7 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
 
     global DATASETS_PATH
     if datasets_path:
-        import neural_arte as _na
+        import src.neural_arte.neural_arte as _na
         _na.DATASETS_PATH = datasets_path
         DATASETS_PATH = datasets_path
 

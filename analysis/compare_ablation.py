@@ -5,8 +5,8 @@ Lê todos os CSVs de results/neural/ e agrupa por (dataset, composição, n_mode
 exibindo tabelas comparativas de acurácia, kappa, drifts e latência.
 
 Uso:
-    python NeuralARTE/compare_ablation.py
-    python NeuralARTE/compare_ablation.py --folder results/neural --metric acc
+    python analysis/compare_ablation.py
+    python analysis/compare_ablation.py --folder results/neural --metric acc
 """
 
 import pandas as pd

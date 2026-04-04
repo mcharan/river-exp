@@ -1,13 +1,13 @@
 """
 Comparação ADWIN min_window_length=5 vs =10 nos experimentos ARTE.
 
-Lê todos os CSVs de results/original/ com padrão ARTE_CPU_{dataset}_mw{5|10}_*
+Lê todos os CSVs de results/arte/ com padrão ARTE_CPU_{dataset}_mw{5|10}_*
 e exibe tabelas comparativas com referência MOA quando disponível.
 
 Uso:
-    python ARTE/compare_mw.py
-    python ARTE/compare_mw.py --folder results/original --metric acc
-    python ARTE/compare_mw.py --full
+    python analysis/compare_mw.py
+    python analysis/compare_mw.py --folder results/arte --metric acc
+    python analysis/compare_mw.py --full
 """
 
 import os
@@ -196,8 +196,8 @@ def tabela_completa(df):
 # =============================================================================
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Comparação ADWIN mw=5 vs mw=10')
-    parser.add_argument('--folder', default='results/original',
-                        help='Pasta com os CSVs (padrão: results/original)')
+    parser.add_argument('--folder', default='results/arte',
+                        help='Pasta com os CSVs (padrão: results/arte)')
     parser.add_argument('--metric', default='acc',
                         choices=['acc', 'kappa', 'drifts', 'gmean', 'lat_ms'],
                         help='Métrica principal (padrão: acc)')

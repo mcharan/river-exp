@@ -1,5 +1,9 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PYTHON="${PYTHON:-python3}"
+SCRIPT="$SCRIPT_DIR/src/neural_arte/neural_arte.py"
+
 # Lista de Datasets da Tabela 14
 datasets=(
     "airlines"
@@ -28,8 +32,8 @@ echo "Disparando experimentos em paralelo..."
 for ds in "${datasets[@]}"; do
     echo "Iniciando screen para: $ds"
     # Cria uma screen com o nome do dataset e executa o python
-    screen -dmS "exp_$ds" python3 ARTE-Experiments.py --dataset "$ds"
-    
+    screen -dmS "exp_$ds" bash -c "cd $SCRIPT_DIR && $PYTHON $SCRIPT --dataset $ds"
+
     # Pequena pausa para nao sobrecarregar o I/O de disco na largada
     sleep 2
 done

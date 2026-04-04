@@ -8,12 +8,12 @@
 #   bash run_mw_comparison.sh full rbf_m rbf_f agrawal_a  # full, datasets específicos
 #   bash run_mw_comparison.sh mini sea_a sea_g             # mini, datasets específicos
 #
-# Resultados em: results/original/ARTE_CPU_{dataset}_mw{5|10}_s{seed}_{ts}.csv
+# Resultados em: results/arte/ARTE_CPU_{dataset}_mw{5|10}_s{seed}_{ts}.csv
 # ==============================================================================
 
-PYTHON="/home/marcelo.charan1/.conda/envs/deep-river-demo/bin/python"
-SCRIPT_DIR="/home/marcelo.charan1/Documents/river-exp"
-SCRIPT="$SCRIPT_DIR/ARTE/ARTE-Experiments.py"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PYTHON="${PYTHON:-python3}"
+SCRIPT="$SCRIPT_DIR/experiments/arte/run_experiments.py"
 LOGS_DIR="$SCRIPT_DIR/results/logs"
 
 SEED=123456789
@@ -26,9 +26,9 @@ shift  # remove o argumento de modo; o restante são datasets opcionais
 ALL_SYNTHETIC=("rbf_m" "rbf_f" "agrawal_a" "agrawal_g" "led_a" "led_g" "sea_a" "sea_g" "mixed_a" "mixed_g")
 
 if [ "$MODE" = "mini" ]; then
-    DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets/mini"
+    DATASETS_PATH="${DATASETS_PATH:-/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets/mini}"
 else
-    DATASETS_PATH="/home/marcelo.charan1/Documents/moa/AdaptiveRandomTreeEnsemble/datasets"
+    DATASETS_PATH="${DATASETS_PATH:-/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets}"
 fi
 
 # Se foram passados datasets específicos, usa-os; senão usa todos os sintéticos
@@ -39,7 +39,7 @@ else
 fi
 
 mkdir -p "$LOGS_DIR"
-mkdir -p "$SCRIPT_DIR/results/original"
+mkdir -p "$SCRIPT_DIR/results/arte"
 
 echo "============================================================"
 echo " Bateria mw=5 vs mw=10  |  Modo: $MODE"

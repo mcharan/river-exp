@@ -15,14 +15,17 @@ from scipy.io import arff
 from river import stats, utils, drift, metrics
 from river import base, stats, utils, drift, metrics, preprocessing, datasets
 import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ARTE'))
-from metrics import KappaM
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from src.shared.metrics import KappaM
 from deep_river import classification
 
 # =============================================================================
 # CONFIGURAÇÃO DE AMBIENTE — ajuste para local ou servidor remoto
 # =============================================================================
-DATASETS_PATH = "/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets"  # default local
+DATASETS_PATH = os.environ.get(
+    "DATASETS_PATH",
+    "/home/charan/moa/aldopaim/AdaptiveRandomTreeEnsemble/datasets"
+)
 
 # =============================================================================
 # 1. CARREGAMENTO DE DADOS (Protocolo ARFF Unificado)
@@ -70,7 +73,7 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
     try:
         data, meta = arff.loadarff(path)
         df = pd.DataFrame(data)
-        
+
         for col in df.columns:
             if df[col].dtype == object:
                 df[col] = df[col].str.decode('utf-8')
@@ -119,11 +122,11 @@ def apply_one_hot_encoding(X, nominal_indices):
 
     print(f"Aplicando One-Hot Encoding em {len(nominal_indices)} colunas...")
     df = pd.DataFrame(X)
-    
+
     # OHE nas colunas especificadas
     # drop_first=True evita colinearidade perfeita (opcional)
     df = pd.get_dummies(df, columns=nominal_indices, dtype=float)
-    
+
     X_new = df.values.astype(np.float32)
     print(f"   -> Expansao de Features: {X.shape[1]} -> {X_new.shape[1]}")
     return X_new
@@ -171,16 +174,16 @@ class FlexibleNeuralNetwork(nn.Module):
             self.register_buffer('projection', projection_matrix.to(torch.float32))
         else:
             self.projection = None
-            
+
         # Define dimens�o de entrada (com ou sem proje��o, a dimens�o � mantida ou alterada externamente)
         # Se houver proje��o, assume-se que ela projeta de n_features -> n_features (rota��o)
         self.in_dim = (8 * n_features) if use_cnn else n_features
-        
+
         if use_cnn:
             self.cnn_block = nn.Sequential(nn.Conv1d(1, 8, 3, padding=1), nn.ReLU(), nn.Flatten())
         else:
             self.cnn_block = None
-            
+
         layers = []
         curr = self.in_dim
         for h in hidden_layers:
@@ -193,13 +196,13 @@ class FlexibleNeuralNetwork(nn.Module):
     def forward(self, x):
         if x.dim() == 1: x = x.unsqueeze(0)
         x = x.to(torch.float32)
-        
-        if self.projection is not None: 
+
+        if self.projection is not None:
             x = torch.matmul(x, self.projection)
-            
-        if self.use_cnn: 
+
+        if self.use_cnn:
             x = self.cnn_block(x.unsqueeze(1))
-            
+
         return self.mlp_head(x)
 
 class ARTELight(base.Ensemble, base.Classifier):
@@ -208,12 +211,12 @@ class ARTELight(base.Ensemble, base.Classifier):
         self.lambda_val = lambda_val
         self._rng = np.random.RandomState(seed)
         self.drift_detector = drift_detector
-        
+
         # Clones independentes
         self._detectors = [drift_detector.clone() for _ in range(len(models))]
         self._acc_windows = [utils.Rolling(stats.Mean(), window_size=window_size) for _ in range(len(models))]
         self._total_drifts = 0
-        
+
         # Instrumentação
         self.model_types = model_types
         self.stats_correct = {t: 0 for t in set(model_types)}
@@ -222,7 +225,7 @@ class ARTELight(base.Ensemble, base.Classifier):
     def learn_one(self, x, y):
         # x: Tensor na GPU [feat] ou [1, feat]
         # y: Inteiro
-        
+
         # Garante dimensão de batch [1, feat] para o PyTorch
         if isinstance(x, torch.Tensor) and x.ndim == 1:
             x_in = x.unsqueeze(0)
@@ -238,14 +241,14 @@ class ARTELight(base.Ensemble, base.Classifier):
             with torch.inference_mode():
                 logits = model.module(x_in)
                 y_pred = torch.argmax(logits, dim=1).item()
-            
+
             correct = (y == y_pred)
-            
+
             # Atualiza stats e detectors
             if correct: self.stats_correct[self.model_types[i]] += 1
             self._detectors[i].update(0 if correct else 1)
             self._acc_windows[i].update(1 if correct else 0)
-            
+
             # 2. Treino (Boosting via Poisson)
             if not correct:
                 k = self._rng.poisson(self.lambda_val)
@@ -257,31 +260,31 @@ class ARTELight(base.Ensemble, base.Classifier):
                     # --- CORREÇÃO DE TREINO (Bypass Deep River) ---
                     model = self.models[i]
                     model.module.train() # Modo treino
-                    
+
                     # Zera gradientes
                     model.optimizer.zero_grad()
-                    
+
                     # Forward
                     y_pred_logits = model.module(x_boost)
-                    
+
                     # Loss Calculation
                     loss = model.loss_fn(y_pred_logits, y_boost)
-                    
+
                     # Backward & Step
                     loss.backward()
                     model.optimizer.step()
-                    
-                    
+
+
 
             # 3. Drift Reset
             if self._detectors[i].drift_detected:
                 self._total_drifts += 1
                 self.stats_drifts[self.model_types[i]] += 1
-                self.models[i] = model.clone() 
+                self.models[i] = model.clone()
                 self._detectors[i] = self.drift_detector.clone()
                 self._acc_windows[i] = utils.Rolling(stats.Mean(), window_size=100)
                 any_drift = True
-                
+
         return any_drift
 
     def learn_many(self, X, y):
@@ -292,35 +295,35 @@ class ARTELight(base.Ensemble, base.Classifier):
         """
         batch_size = X.shape[0]
         device = X.device
-        
+
         # Garante que y é LongTensor para a Loss function
         y = y.long()
 
         for i, model in enumerate(self.models):
-            
+
             # --- 1. Predição do Lote (Bypass Deep River para velocidade) ---
             model.module.eval()
             with torch.no_grad():
                 logits = model.module(X)
                 # Pega a classe predita (argmax)
                 y_pred = torch.argmax(logits, dim=1)
-            
+
             # --- 2. Máscara de Erros (Quem errou?) ---
             # Retorna vetor booleano [True, False, True...]
             incorrect_mask = (y_pred != y)
-            
+
             # --- 3. Atualização de Drift e Stats (Gargalo CPU necessário) ---
             # Infelizmente o ADWIN do River é sequencial e roda na CPU.
             # Convertemos para numpy apenas os bits necessários para atualizar os detectores.
             if incorrect_mask.any():
                 incorrect_cpu = incorrect_mask.cpu().numpy()
-                
+
                 # Loop rápido apenas para atualizar estatísticas
                 for is_incorrect in incorrect_cpu:
                     val = 1 if is_incorrect else 0
                     self._detectors[i].update(val)
                     self._acc_windows[i].update(0 if is_incorrect else 1)
-                    
+
                 # Contabiliza acertos no placar global
                 # (Total do batch - Total de erros)
                 n_errors = incorrect_cpu.sum()
@@ -337,25 +340,25 @@ class ARTELight(base.Ensemble, base.Classifier):
             if self._detectors[i].drift_detected:
                 self._total_drifts += 1
                 self.stats_drifts[self.model_types[i]] += 1
-                
+
                 # Reset do modelo (Clone limpo)
-                self.models[i] = model.clone() 
+                self.models[i] = model.clone()
                 self._detectors[i] = self.drift_detector.clone()
                 self._acc_windows[i] = utils.Rolling(stats.Mean(), window_size=100)
-                
+
                 # Se houve drift, forçamos um treino com peso 1 em todo o batch
                 # para o novo modelo já nascer vendo dados
                 k_vector = torch.ones(batch_size, device=device, dtype=torch.long)
-                
+
             else:
                 # --- 5. Lógica de Boosting (Vectorized Poisson) ---
                 # Queremos treinar apenas onde o modelo ERROU (conforme sua lógica original)
                 # k ~ Poisson(lambda) para cada instância
-                
+
                 # Gera Poisson para o lote todo
                 lambda_tensor = torch.full((batch_size,), self.lambda_val, device=device, dtype=torch.float)
                 k_raw = torch.poisson(lambda_tensor)
-                
+
                 # Aplica a máscara: Zera o k se o modelo acertou a instância
                 # k = Poisson se errou, 0 se acertou
                 k_vector = (k_raw * incorrect_mask.float()).long()
@@ -363,24 +366,24 @@ class ARTELight(base.Ensemble, base.Classifier):
             # --- 6. Treino Efetivo (Backpropagation) ---
             # Se a soma de k for 0, ninguém precisa de treino nesse lote -> Pula
             if k_vector.sum() > 0:
-                
+
                 # OVERSAMPLING NA GPU (Repetição eficiente)
                 # Se k=[0, 2, 1], repetimos a instância 2 duas vezes e a 3 uma vez.
                 X_train = torch.repeat_interleave(X, k_vector, dim=0)
                 y_train = torch.repeat_interleave(y, k_vector, dim=0)
-                
+
                 # Setup do Treino
                 model.module.train()
                 model.optimizer.zero_grad()
-                
+
                 # Forward Pass
                 logits_train = model.module(X_train)
                 loss = model.loss_fn(logits_train, y_train)
-                
+
                 # Backward Pass
                 loss.backward()
                 model.optimizer.step()
-                
+
     @torch.inference_mode()
     def predict_proba_one(self, x):
         # x: Tensor na GPU [1, n_feat]
@@ -391,33 +394,33 @@ class ARTELight(base.Ensemble, base.Classifier):
         accs = [w.get() for w in self._acc_windows]
         avg = sum(accs)/len(accs) if accs else 0
         idx = [i for i, a in enumerate(accs) if a >= avg] or range(len(self.models))
-        
+
         votes = collections.Counter()
-        
+
         for i in idx:
             model = self.models[i]
-            
+
             # --- CORREÇÃO DO ERRO ---
             # Bypass no wrapper do Deep River. Chamamos a rede (module) diretamente.
             # O wrapper deep_river.Classifier guarda a rede em self.module
-            
+
             # Garante modo de avaliação
             model.module.eval()
-            
+
             # Inferência direta (Rápida!)
             # A rede retorna logits (raw scores). Precisamos aplicar Softmax.
-            logits = model.module(x) 
+            logits = model.module(x)
             proba_tensor = torch.softmax(logits, dim=1)
-            
+
             # Extrai probabilidades para CPU (necessário para o Counter do Python)
             # Como é binary/multiclass, pegamos a lista de probabilidades
             probas = proba_tensor.cpu().numpy()[0]
-            
+
             # Mapeia índice -> probabilidade (0: p0, 1: p1...)
             # Assume classes 0, 1, 2... ordenadas
             for class_idx, prob_val in enumerate(probas):
                 votes[class_idx] += prob_val / len(idx)
-                
+
         return votes
 
     @torch.inference_mode()
@@ -430,9 +433,9 @@ class ARTELight(base.Ensemble, base.Classifier):
         if y_proba:
             return max(y_proba, key=y_proba.get)
         return 0 # Fallback
-        
+
     @property
-    def total_drifts(self): 
+    def total_drifts(self):
         return self._total_drifts
 
 # =============================================================================
@@ -487,7 +490,7 @@ COMPOSITIONS = {
 
 
 def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, device=None, batch_size=32, use_projection=True, composition="current", use_drift=True):
-    
+
     global DATASETS_PATH
     if datasets_path:
         DATASETS_PATH = datasets_path
@@ -495,7 +498,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"--- Iniciando Neural ARTE (device: {device}) ---")
-    
+
     # 1. Carrega Dados (ARFF)
     try:
         X_all, y_all, n_feat_raw, n_classes, nom_indices = get_dataset_universal(dataset, seed=seed)
@@ -506,7 +509,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     # 2. Pr�-processamento OHE (Fundamental para MLPs)
     if nom_indices:
         X_all = apply_one_hot_encoding(X_all, nom_indices)
-    
+
     n_feat = X_all.shape[1]
     print(f"Dataset: {dataset} | Inst: {len(X_all)} | Feat: {n_feat} | Classes: {n_classes}")
 
@@ -552,14 +555,14 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     metric_kappa = metrics.CohenKappa()
     metric_kappa_m = KappaM()
     metric_gmean = metrics.GeometricMean()
-    
+
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     drift_tag = "nodrift" if not use_drift else "adwin"
     output_file = f"results/neural/NeuralARTE_{dataset}_{composition}_{drift_tag}_s{seed}_{timestamp}.csv"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    
+
     print(f"Salvando em: {output_file}")
-    
+
     latencies = []
     start_total = time.time()
 
@@ -637,7 +640,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     if len(X_all) % log_interval != 0:
         save_snapshot(len(X_all), force=True)
 
-    print(f" Fim {dataset}. Tempo Total: {(time.time() - start_total):.1f}s | Acc: {metric_acc.get():.2%}")
+    print(f" Fim {dataset}. Tempo Total: {(time.time() - start_total):.1f}s | Acc: {metric_acc.get():.2%}")
 
 if __name__ == "__main__":
     # Exemplo de uso via CLI ou chamada direta
