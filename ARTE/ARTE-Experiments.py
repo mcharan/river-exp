@@ -33,7 +33,7 @@ from river.tree.utils import BranchFactory
 # =============================================================================
 # 4. LOOP DE EXECUÇÃO (CPU)
 # =============================================================================
-def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, window_size=500):
+def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, window_size=500, adwin_min_window=5):
     
     # 1. Carrega Dados (NumPy)
     print(f"--- Carregando {dataset} ---")
@@ -54,7 +54,7 @@ def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, windo
         n_models=n_models,
         lambd=lambda_val,
         window_size=window_size, # W=500 conforme paper
-        drift_detector=drift.ADWIN(delta=0.001),
+        drift_detector=drift.ADWIN(delta=0.001, min_window_length=adwin_min_window),
         seed=seed,
         k_min=2
     )
@@ -69,7 +69,7 @@ def main_arte_cpu(dataset='airlines', seed=1, n_models=50, lambda_val=6.0, windo
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     run_id = str(uuid.uuid4())[:8]
     os.makedirs("results/original", exist_ok=True)
-    output_file = f"results/original/ARTE_CPU_{dataset}_s{seed}_{timestamp}.csv"
+    output_file = f"results/original/ARTE_CPU_{dataset}_mw{adwin_min_window}_s{seed}_{timestamp}.csv"
 
     print(f"Iniciando Execução CPU | Run ID: {run_id}")
     print(f"Salvando em: {output_file}")
@@ -162,15 +162,18 @@ if __name__ == "__main__":
         parser.add_argument('--seed', type=int, default=123456789, help='Seed aleatoria')
         parser.add_argument('--n_models', type=int, default=100, help='Numero de arvores')
         parser.add_argument('--window_size', type=int, default=500, help='Janela de acuracia')
-        
+        parser.add_argument('--adwin_min_window', type=int, default=5,
+                            help='min_window_length do ADWIN: 5 (River padrão) ou 10 (equivalente MOA)')
+
         args = parser.parse_args()
-        
+
         main_arte_cpu(
             dataset=args.dataset,
             seed=args.seed,
             n_models=args.n_models,
             lambda_val=6.0,
-            window_size=args.window_size
+            window_size=args.window_size,
+            adwin_min_window=args.adwin_min_window,
         )
     else:
         # Exemplo de chamada para reproduzir experimentos
