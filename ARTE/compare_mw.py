@@ -21,11 +21,12 @@ import pandas as pd
 # Valores de acurácia (%) com seed=123456789, n_models=100, delta=1e-3
 # =============================================================================
 MOA_REF = {
+    # Fonte: nota_metodologica_adwin.md
+    # seed=123456789, n_models=100, delta=1e-3
     'rbf_m':     87.71,
     'rbf_f':     79.86,
     'agrawal_a': 79.50,
     'agrawal_g': 75.49,
-    # Adicione outros à medida que forem disponíveis
 }
 
 
