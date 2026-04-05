@@ -54,7 +54,20 @@ datasets=(
 
 DATASETS_ARG=""
 if [ -n "$DATASETS_PATH" ]; then
+    if [ ! -d "$DATASETS_PATH" ]; then
+        echo "[ERRO] DATASETS_PATH não existe: $DATASETS_PATH"
+        exit 1
+    fi
+    # Verifica se há pelo menos um ARFF no diretório
+    if ! ls "$DATASETS_PATH"/*.arff &>/dev/null; then
+        echo "[ERRO] Nenhum arquivo .arff encontrado em: $DATASETS_PATH"
+        exit 1
+    fi
     DATASETS_ARG="--datasets_path $DATASETS_PATH"
+else
+    echo "[AVISO] DATASETS_PATH não definido — usando o default do código."
+    echo "        Para sobrescrever: export DATASETS_PATH=/caminho/datasets"
+    echo ""
 fi
 
 mkdir -p "$LOGS_DIR"
