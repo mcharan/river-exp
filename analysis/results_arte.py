@@ -27,7 +27,7 @@ def analisar_resultados(folder_path="results/arte"):
             if len(parts) == 3:
                 try:
                     dt = pd.to_datetime(parts[1] + parts[2].replace('.csv', ''), format='%Y%m%d%H%M%S')
-                    rodada = dt.strftime('%m/%d %H:%M')
+                    rodada = dt.strftime('%d/%m %H:%M')
                 except Exception:
                     pass
 
