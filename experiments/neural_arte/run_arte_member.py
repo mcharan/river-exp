@@ -48,7 +48,7 @@ from deep_river import classification
 
 
 def main(dataset, seed, n_models, lambda_val, window_size, arch,
-         n_reset_layers=1, hidden_layers=None, lr=0.005,
+         n_reset_layers=1, hidden_layers=None, lr=0.005, delta=0.001,
          composition='abc', datasets_path=None, datasets_path_fallback=None,
          device=None, use_drift=True):
 
@@ -109,7 +109,7 @@ def main(dataset, seed, n_models, lambda_val, window_size, arch,
             seed=seed,
             hidden_layers=_hidden,
             lr=lr,
-            delta=0.001 if use_drift else 1e9,  # delta enorme ≈ drift nunca dispara
+            delta=delta if use_drift else 1e9,  # delta enorme ≈ drift nunca dispara
             device=device,
         )
 
@@ -264,6 +264,8 @@ if __name__ == '__main__':
                         help='[soft_reset only] Composição do ensemble.')
     parser.add_argument('--lr',                 type=float, default=0.005,
                         help='[subspace only] Learning rate Adam de cada membro.')
+    parser.add_argument('--delta',              type=float, default=0.001,
+                        help='[subspace only] Sensibilidade do ADWIN (padrão 0.001; menor = menos sensível).')
     parser.add_argument('--datasets_path',      type=str, default=None)
     parser.add_argument('--datasets_path_real', type=str, default=None,
                         help='Caminho fallback (pasta full) quando ARFF não encontrado em datasets_path.')
@@ -288,5 +290,6 @@ if __name__ == '__main__':
         datasets_path=args.datasets_path,
         datasets_path_fallback=args.datasets_path_real,
         device=args.device,
+        delta=args.delta,
         use_drift=not args.no_drift,
     )
