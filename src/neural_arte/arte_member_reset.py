@@ -13,18 +13,21 @@ from river import stats, utils
 
 
 # =============================================================================
-# ARTENeuralRS — Random Subspace Neural Ensemble
+# ARTESubspaceNN — ARTE Neural com Random Subspace por membro
 # =============================================================================
-class ARTENeuralRS:
+class ARTESubspaceNN:
     """
-    Direct neural port of ARTE using random subspaces.
+    Port neural direto do ARTE usando subespaços aleatórios de features.
 
-    Each MLP member:
-      - Uses a random subspace of k features (k drawn from [k_min, n_features])
-      - Has its own ADWINChangeDetector
-      - Gets individually reset (new MLP + new random subspace) when drift detected
-      - Weighted voting by rolling window accuracy (same as ARTELight)
-      - Online Bagging via Poisson(lambd) training steps
+    Cada membro do ensemble (MLP):
+      - Opera sobre um subconjunto aleatório de k features  (k ∈ [k_min, n_features])
+      - Possui seu próprio ADWINChangeDetector individual
+      - É reiniciado individualmente (novo MLP + novo subconjunto) ao detectar drift
+      - Voto ponderado pela acurácia na janela deslizante (igual ao ARTELight)
+      - Treinamento Online Bagging via Poisson(lambd) repetições por instância
+
+    Análogo neural do ARTE original: diversidade via subconjunto de features +
+    reset total do membro afetado (não do ensemble inteiro).
     """
 
     def __init__(self, n_features, n_classes, n_models=30, lambd=6.0,
@@ -76,8 +79,8 @@ class ARTENeuralRS:
     @torch.inference_mode()
     def predict_proba_one(self, x_full):
         """
-        x_full: 1-D GPU tensor of length n_features.
-        Returns Counter {class_idx: aggregated_prob}.
+        x_full: tensor 1-D de comprimento n_features.
+        Retorna Counter {classe: probabilidade_agregada}.
         """
         accs = [m['window_acc'].get() for m in self._members]
         avg = sum(accs) / len(accs) if accs else 0.0
@@ -107,14 +110,14 @@ class ARTENeuralRS:
 
     def learn_one(self, x_full, y):
         """
-        x_full: 1-D GPU tensor of length n_features.
-        y: integer class label.
+        x_full: tensor 1-D de comprimento n_features.
+        y: rótulo inteiro da classe.
         """
         for i, member in enumerate(self._members):
             x_sub = x_full[member['subspace']]
             x_in = x_sub.unsqueeze(0)
 
-            # 1. Predict for monitoring (test-then-train)
+            # 1. Predição para monitoramento (test-then-train)
             member['model'].eval()
             with torch.inference_mode():
                 logits = member['model'](x_in)
@@ -124,7 +127,7 @@ class ARTENeuralRS:
             member['detector'].update(0 if correct else 1)
             member['window_acc'].update(1 if correct else 0)
 
-            # 2. Poisson(lambd) training steps
+            # 2. Poisson(lambd) passos de treinamento
             k = self._rng.poisson(self.lambd)
             if k > 0:
                 member['model'].train()
@@ -137,7 +140,7 @@ class ARTENeuralRS:
                 loss.backward()
                 member['optimizer'].step()
 
-            # 3. Drift detection — reset member on drift
+            # 3. Drift: reinicia somente este membro (novo subconjunto + novo MLP)
             if member['detector'].drift_detected:
                 self._total_drifts += 1
                 self._members[i] = self._new_member()
@@ -148,18 +151,28 @@ class ARTENeuralRS:
 
 
 # =============================================================================
-# ARTENeuralSR — Selective Reset Neural Ensemble
+# ARTESoftResetNN — ARTE Neural com Reset Parcial de Camadas por membro
 # =============================================================================
-class ARTENeuralSR:
+class ARTESoftResetNN:
     """
-    Same structure as ARTELight but instead of cloning the whole model on drift,
-    resets only the last `n_reset_layers` linear layers of the affected model.
-    This preserves early feature extraction layers while re-initializing the
-    decision layers.
+    Igual ao ARTELight (ensemble de MLPs com composição diversificada),
+    mas ao detectar drift em um membro reinicia apenas as últimas
+    `n_reset_layers` camadas lineares do MLP afetado, preservando as
+    camadas de extração de features anteriores.
 
-    models: list of deep_river classification.Classifier instances.
-    model_configs: list of dicts with keys 'optimizer_fn' and 'lr',
-                   used to recreate the optimizer after selective reset.
+    Motivação: redes neurais sofrem de esquecimento catastrófico após um
+    reset completo — precisam de muitas instâncias para re-convergir.
+    O reset suave preserva o conhecimento acumulado nas camadas iniciais
+    e reinicia apenas a cabeça de decisão, que é mais sensível ao drift.
+
+    Parâmetros
+    ----------
+    models : list de deep_river classification.Classifier
+    model_configs : list de dict com 'optimizer_fn' e 'lr'
+        Usado para recriar o optimizer após o reset parcial.
+    drift_detector : ADWINChangeDetector ou NoDriftDetector
+    n_reset_layers : int
+        Número de camadas lineares finais a reiniciar no drift.
     """
 
     def __init__(self, models, model_configs, drift_detector,
@@ -181,26 +194,26 @@ class ARTENeuralSR:
             utils.Rolling(stats.Mean(), window_size=window_size) for _ in range(n)
         ]
 
-    def _selective_reset(self, i):
+    def _soft_reset(self, i):
         """
-        Reinitialise the last n_reset_layers Linear layers of model i's mlp_head.
-        Then recreate the optimizer so parameter references stay valid.
+        Reinicializa as últimas n_reset_layers camadas lineares do membro i.
+        Recria o optimizer para que as referências aos parâmetros sejam válidas.
         """
         model = self.models[i]
         cfg = self.model_configs[i]
 
-        # Collect all nn.Linear layers inside mlp_head
+        # Coleta todas as camadas nn.Linear dentro de mlp_head
         linear_layers = [
             m for m in model.module.mlp_head.modules()
             if isinstance(m, nn.Linear)
         ]
 
-        # Reinit the last n_reset_layers linear layers
+        # Reinicializa as últimas n_reset_layers
         for layer in linear_layers[-self.n_reset_layers:]:
             nn.init.kaiming_uniform_(layer.weight, nonlinearity='relu')
             nn.init.zeros_(layer.bias)
 
-        # Recreate optimizer so it holds fresh references to the (modified) params
+        # Recria optimizer para limpar momentum e referências antigas
         model.optimizer = cfg['optimizer_fn'](
             model.module.parameters(), lr=cfg['lr']
         )
@@ -208,8 +221,8 @@ class ARTENeuralSR:
     @torch.inference_mode()
     def predict_proba_one(self, x):
         """
-        x: GPU tensor [n_feat] or [1, n_feat].
-        Returns Counter {class_idx: aggregated_prob}.
+        x: tensor [n_feat] ou [1, n_feat].
+        Retorna Counter {classe: probabilidade_agregada}.
         """
         if isinstance(x, torch.Tensor) and x.ndim == 1:
             x = x.unsqueeze(0)
@@ -241,8 +254,8 @@ class ARTENeuralSR:
 
     def learn_one(self, x, y):
         """
-        x: GPU tensor [n_feat] or [1, n_feat].
-        y: integer class label.
+        x: tensor [n_feat] ou [1, n_feat].
+        y: rótulo inteiro da classe.
         """
         if isinstance(x, torch.Tensor) and x.ndim == 1:
             x_in = x.unsqueeze(0)
@@ -250,7 +263,7 @@ class ARTENeuralSR:
             x_in = x
 
         for i, model in enumerate(self.models):
-            # 1. Predict for monitoring (test-then-train)
+            # 1. Predição para monitoramento (test-then-train)
             model.module.eval()
             with torch.inference_mode():
                 logits = model.module(x_in)
@@ -260,7 +273,7 @@ class ARTENeuralSR:
             self._detectors[i].update(0 if correct else 1)
             self._acc_windows[i].update(1 if correct else 0)
 
-            # 2. Poisson boosting on incorrect predictions
+            # 2. Poisson boosting nas predições incorretas
             if not correct:
                 k = self._rng.poisson(self.lambda_val)
                 if k > 0:
@@ -275,10 +288,10 @@ class ARTENeuralSR:
                     loss.backward()
                     model.optimizer.step()
 
-            # 3. Selective reset on drift
+            # 3. Drift: reset parcial somente deste membro
             if self._detectors[i].drift_detected:
                 self._total_drifts += 1
-                self._selective_reset(i)
+                self._soft_reset(i)
                 self._detectors[i] = self.drift_detector.clone()
                 self._acc_windows[i] = utils.Rolling(
                     stats.Mean(), window_size=self.window_size

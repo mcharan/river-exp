@@ -1,18 +1,18 @@
 #!/bin/bash
 # ==============================================================================
-# Execução em ondas — ARTENeuralRS e ARTENeuralSR
+# Execução em ondas — ARTESubspaceNN e ARTESoftResetNN
 #
 # Uso:
-#   bash experiments/neural_arte/run_arte_neural.sh --arch rs
-#   bash experiments/neural_arte/run_arte_neural.sh --arch sr
-#   bash experiments/neural_arte/run_arte_neural.sh --arch rs --wave 3 --gpu 0
-#   bash experiments/neural_arte/run_arte_neural.sh --arch sr --n_reset_layers 2
-#   bash experiments/neural_arte/run_arte_neural.sh --arch sr --no_drift
+#   bash experiments/neural_arte/run_arte_member.sh --arch subspace
+#   bash experiments/neural_arte/run_arte_member.sh --arch soft_reset
+#   bash experiments/neural_arte/run_arte_member.sh --arch subspace --wave 3 --gpu 0
+#   bash experiments/neural_arte/run_arte_member.sh --arch soft_reset --n_reset_layers 2
+#   bash experiments/neural_arte/run_arte_member.sh --arch soft_reset --no_drift
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON="${PYTHON:-python3}"
-SCRIPT="$SCRIPT_DIR/experiments/neural_arte/run_arte_neural.py"
+SCRIPT="$SCRIPT_DIR/experiments/neural_arte/run_arte_member.py"
 LOGS_DIR="$SCRIPT_DIR/results/logs"
 
 DATASETS_PATH="${DATASETS_PATH:-}"
@@ -40,12 +40,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$ARCH" ]; then
-    echo "[ERRO] --arch é obrigatório. Use: --arch rs  ou  --arch sr"
+    echo "[ERRO] --arch é obrigatório. Use: --arch subspace  ou  --arch soft_reset"
     exit 1
 fi
 
-if [ "$ARCH" != "rs" ] && [ "$ARCH" != "sr" ]; then
-    echo "[ERRO] --arch deve ser 'rs' ou 'sr', recebido: '$ARCH'"
+if [ "$ARCH" != "subspace" ] && [ "$ARCH" != "soft_reset" ]; then
+    echo "[ERRO] --arch deve ser 'subspace' ou 'soft_reset', recebido: '$ARCH'"
     exit 1
 fi
 
@@ -112,7 +112,7 @@ mkdir -p "$LOGS_DIR" "$SCRIPT_DIR/results/neural"
 # Arch-specific args
 # ------------------------------------------------------------------
 ARCH_ARGS="--arch $ARCH --n_models $N_MODELS"
-if [ "$ARCH" = "sr" ]; then
+if [ "$ARCH" = "soft_reset" ]; then
     ARCH_ARGS="$ARCH_ARGS --composition $COMPOSITION --n_reset_layers $N_RESET_LAYERS"
 fi
 
@@ -120,9 +120,9 @@ total=${#datasets[@]}
 wave=0
 
 echo "============================================================"
-echo " arte_neural — arch=$ARCH | ondas de $WAVE_SIZE | GPU=$GPU"
+echo " arte_member — arch=$ARCH | ondas de $WAVE_SIZE | GPU=$GPU"
 echo " n_models=$N_MODELS | $total datasets | Logs: $LOGS_DIR"
-if [ "$ARCH" = "sr" ]; then
+if [ "$ARCH" = "soft_reset" ]; then
     echo " composition=$COMPOSITION | n_reset_layers=$N_RESET_LAYERS"
 fi
 echo "============================================================"
@@ -136,7 +136,7 @@ while [ $i -lt $total ]; do
     sessions=()
     for (( j=0; j<WAVE_SIZE && i<total; j++, i++ )); do
         ds="${datasets[$i]}"
-        session="arteN_${ARCH}_${ds}"
+        session="arteM_${ARCH}_${ds}"
         LOG="$LOGS_DIR/${session}.log"
 
         if screen -ls | grep -q "$session"; then
@@ -175,4 +175,5 @@ done
 
 echo ""
 echo "Todos os $total experimentos concluídos (arch=$ARCH)."
+echo "Sessões:    screen -ls | grep arteM_"
 echo "Resultados: $SCRIPT_DIR/results/neural/"
