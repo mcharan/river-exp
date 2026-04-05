@@ -17,6 +17,7 @@ from river import base, stats, utils, drift, metrics, preprocessing, datasets
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from src.shared.metrics import KappaM
+from src.arte.drift_detector import ADWINChangeDetector
 from deep_river import classification
 
 # =============================================================================
@@ -540,7 +541,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
         ensemble_list.append(m)
         model_types_list.append(cfg["type"])
 
-    detector = drift.ADWIN(delta=0.001) if use_drift else NoDriftDetector()
+    detector = ADWINChangeDetector(delta=0.001) if use_drift else NoDriftDetector()
     model = ARTELight(
         models=ensemble_list,
         model_types=model_types_list,
@@ -557,7 +558,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
     metric_gmean = metrics.GeometricMean()
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    drift_tag = "nodrift" if not use_drift else "adwin"
+    drift_tag = "nodrift" if not use_drift else "adwin_dir"
     output_file = f"results/neural/NeuralARTE_{dataset}_{composition}_{drift_tag}_s{seed}_{timestamp}.csv"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 

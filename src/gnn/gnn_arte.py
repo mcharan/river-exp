@@ -31,6 +31,7 @@ from river import stats, drift, metrics
 # --- imports locais ----------------------------------------------------------
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from src.shared.metrics import KappaM
+from src.arte.drift_detector import ADWINChangeDetector
 
 from src.neural_arte.neural_arte import (
     get_dataset_universal,
@@ -112,7 +113,7 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
         ensemble.append(clf)
 
     # --- detectores de drift (um por modelo) ---
-    detectors = [drift.ADWIN(delta=1e-3) for _ in range(n_models)]
+    detectors = [ADWINChangeDetector(delta=1e-3) for _ in range(n_models)]
     last_drift = [0] * n_models        # instância do último drift de cada modelo
     last_loss  = [0.0] * n_models      # último loss de cada modelo
     drift_flag = [0] * n_models        # 1 se driftou nas últimas 200 inst.
