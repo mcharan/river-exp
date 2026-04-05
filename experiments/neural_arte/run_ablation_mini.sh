@@ -25,6 +25,7 @@ SEED=123456789
 LAMBDA=6
 WINDOW=500
 DATASETS_PATH="${DATASETS_PATH:-}"
+DATASETS_PATH_REAL="${DATASETS_PATH_REAL:-}"
 LOGS_DIR="$SCRIPT_DIR/results/logs"
 WAVE_SIZE=4
 EIXO="all"
@@ -58,6 +59,18 @@ if [ -n "$DATASETS_PATH" ]; then
 else
     echo "[AVISO] DATASETS_PATH não definido — usando o default do código."
     echo "        Para datasets mini: export DATASETS_PATH=.../datasets/mini"
+    echo ""
+fi
+
+# Fallback: datasets reais não existem na pasta mini — aponta para a pasta full
+if [ -n "$DATASETS_PATH_REAL" ]; then
+    if [ ! -d "$DATASETS_PATH_REAL" ]; then
+        echo "[ERRO] DATASETS_PATH_REAL não existe: $DATASETS_PATH_REAL"; exit 1
+    fi
+    DATASETS_ARG="$DATASETS_ARG --datasets_path_real $DATASETS_PATH_REAL"
+else
+    echo "[AVISO] DATASETS_PATH_REAL não definido — datasets reais usarão o mesmo caminho."
+    echo "        Para separar: export DATASETS_PATH_REAL=.../datasets"
     echo ""
 fi
 

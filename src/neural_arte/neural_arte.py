@@ -31,7 +31,7 @@ DATASETS_PATH = os.environ.get(
 # =============================================================================
 # 1. CARREGAMENTO DE DADOS (Protocolo ARFF Unificado)
 # =============================================================================
-def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
+def get_dataset_universal(dataset_name, seed=42, n_synthetic=None, datasets_path_fallback=None):
     """
     Carregador Universal: L� ARFFs do disco.
     Retorna: X (numpy), y (numpy), n_features, n_classes, nominal_indices
@@ -59,6 +59,8 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
         'sea_g':       'sea_g.arff',
         'rbf_f':       'rbf_f.arff',
         'rbf_m':       'rbf_m.arff',
+        'mixed_a':     'mixed_a.arff',
+        'mixed_g':     'mixed_g.arff',
     }
 
     if name not in files:
@@ -67,8 +69,14 @@ def get_dataset_universal(dataset_name, seed=42, n_synthetic=None):
     filename = files[name]
     path = os.path.join(DATASETS_PATH, filename)
 
+    if not os.path.exists(path) and datasets_path_fallback:
+        path = os.path.join(datasets_path_fallback, filename)
+
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Arquivo {filename} nao encontrado em {DATASETS_PATH}")
+        searched = f"{DATASETS_PATH}" + (f" nem em {datasets_path_fallback}" if datasets_path_fallback else "")
+        raise FileNotFoundError(f"Arquivo {filename} nao encontrado em {searched}")
+
+
 
     print(f"--- Carregando {filename} ---")
     try:
@@ -490,7 +498,7 @@ COMPOSITIONS = {
 }
 
 
-def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, device=None, batch_size=32, use_projection=True, composition="current", use_drift=True):
+def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_path=None, datasets_path_fallback=None, device=None, batch_size=32, use_projection=True, composition="current", use_drift=True):
 
     global DATASETS_PATH
     if datasets_path:
@@ -502,7 +510,7 @@ def main_neural_arte(dataset, seed, n_models, lambda_val, window_size, datasets_
 
     # 1. Carrega Dados (ARFF)
     try:
-        X_all, y_all, n_feat_raw, n_classes, nom_indices = get_dataset_universal(dataset, seed=seed)
+        X_all, y_all, n_feat_raw, n_classes, nom_indices = get_dataset_universal(dataset, seed=seed, datasets_path_fallback=datasets_path_fallback)
     except Exception as e:
         print(f"Erro carregando dataset: {e}")
         return
@@ -654,6 +662,8 @@ if __name__ == "__main__":
     parser.add_argument('--window',        type=int,   default=500)
     parser.add_argument('--datasets_path', type=str,   default=None,
                         help='Caminho para a pasta com os ARFFs. Sobrescreve o default do código.')
+    parser.add_argument('--datasets_path_real', type=str,   default=None,
+                        help='Caminho fallback (pasta full) quando o ARFF não é encontrado em datasets_path.')
     parser.add_argument('--device',        type=str,   default=None,
                         help='Device PyTorch: cuda, cuda:0, cuda:1, cpu. Default: auto-detect.')
     parser.add_argument('--no_projection', action='store_true',
@@ -666,7 +676,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main_neural_arte(args.dataset, args.seed, args.n_models, args.lambda_val, args.window,
-                     datasets_path=args.datasets_path, device=args.device,
+                     datasets_path=args.datasets_path, datasets_path_fallback=args.datasets_path_real, device=args.device,
                      use_projection=not args.no_projection,
                      composition=args.composition,
                      use_drift=not args.no_drift)
