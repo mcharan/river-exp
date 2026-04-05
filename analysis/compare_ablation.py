@@ -30,8 +30,8 @@ def parse_filename(filepath):
         return None
     seed = int(m.group(1))
     remainder = base[:m.start()]   # dataset_composition_drift_tag
-    # drift_tag é sempre 'adwin' ou 'nodrift'
-    for drift_tag in ("nodrift", "adwin"):
+    # drift_tag: 'adwin_dir' (novo), 'adwin' (legado) ou 'nodrift'
+    for drift_tag in ("nodrift", "adwin_dir", "adwin"):
         if remainder.endswith(f"_{drift_tag}"):
             composition = remainder[:-(len(drift_tag) + 1)]
             # composition ainda tem dataset no início — remove pelo primeiro '_'
@@ -47,8 +47,10 @@ def parse_filename(filepath):
                     comp = c
                     break
             if dataset and comp:
+                # normaliza adwin_dir → adwin para compatibilidade com tabelas
+                normalized_drift = "adwin" if drift_tag == "adwin_dir" else drift_tag
                 return {"dataset": dataset, "composition": comp,
-                        "drift": drift_tag, "seed": seed}
+                        "drift": normalized_drift, "seed": seed}
     return None
 
 
