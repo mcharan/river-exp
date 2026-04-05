@@ -188,7 +188,7 @@ def main_gnn_arte(dataset: str, seed: int, n_models: int, lambda_val: int,
                     module=model_new, loss_fn=nn.CrossEntropyLoss(),
                     optimizer_fn=optim.Adam, lr=0.005, device=dev)
                 ensemble[m_idx] = clf_new
-                detectors[m_idx] = drift.ADWIN(delta=1e-3)
+                detectors[m_idx] = ADWINChangeDetector(delta=1e-3)
                 total_drifts += 1
                 last_drift[m_idx] = i
                 drift_flag[m_idx] = 1
