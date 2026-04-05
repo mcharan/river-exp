@@ -7,8 +7,8 @@ def analisar_resultados(folder_path="results/arte"):
     files = glob.glob(os.path.join(folder_path, "*.csv"))
 
     # print(f"{'DATASET':<15} | {'ACC FINAL':<9} | {'KAPPA':<6} | {'KAPPA_M':<6} | {'DRIFTS':<6} | {'LATENCIA (ms)':<13} | {'RAM MAX (MB)':<12} | {'TEMPO TOTAL (min)'}")
-    print(f"{'DATASET':<15} | {'ACC FINAL':<9} | {'KAPPA':<6} | {'KAPPA_M':<6} | {'DRIFTS':<6} | {'RAM MAX (MB)':<12} | {'TEMPO TOTAL (min)'}")
-    print("-" * 100)
+    print(f"{'DATASET':<15} | {'RODADA':<12} | {'ACC FINAL':<9} | {'KAPPA':<6} | {'KAPPA_M':<6} | {'DRIFTS':<6} | {'RAM MAX (MB)':<12} | {'TEMPO TOTAL (min)'}")
+    print("-" * 115)
 
     resultados = []
 
@@ -19,6 +19,17 @@ def analisar_resultados(folder_path="results/arte"):
             # Pega a última linha (Estado Final)
             last_row = df.iloc[-1]
             dataset_name = last_row['Dataset']
+
+            # Extrai timestamp do nome do arquivo: ARTE_CPU_{dataset}_mw{mw}_s{seed}_{YYYYMMDD_HHMMSS}.csv
+            rodada = ''
+            basename = os.path.basename(f)
+            parts = basename.rsplit('_', 2)  # separa os dois últimos segmentos: data e hora
+            if len(parts) == 3:
+                try:
+                    dt = pd.to_datetime(parts[1] + parts[2].replace('.csv', ''), format='%Y%m%d%H%M%S')
+                    rodada = dt.strftime('%m/%d %H:%M')
+                except Exception:
+                    pass
 
             # 1. Acurácia e Kappa Finais (Última linha)
             final_acc = last_row['Accuracy'] * 100
@@ -47,6 +58,7 @@ def analisar_resultados(folder_path="results/arte"):
 
             resultados.append({
                 'dataset': dataset_name,
+                'rodada': rodada,
                 'acc': final_acc,
                 'kappa': final_kappa,
                 'kappam': final_kappam,
@@ -65,11 +77,11 @@ def analisar_resultados(folder_path="results/arte"):
         except Exception as e:
             print(f"Erro lendo {os.path.basename(f)}: {e}")
 
-    resultados_ordenados = sorted(resultados, key=lambda k: k['dataset'].lower())
+    resultados_ordenados = sorted(resultados, key=lambda k: (k['dataset'].lower(), k['rodada']))
 
     # 4. Agora sim, imprimimos a tabela bonitona e em ordem!
     for r in resultados_ordenados:
-        print(f"{r['dataset']:<15} | {r['acc']:05.2f}%    | {r['kappa']:.3f}  | {r['kappam']:.3f}   | {r['drifts']:<6} | {r['ram']:<12.3f} | {r['tempo']:.2f}")
+        print(f"{r['dataset']:<15} | {r['rodada']:<12} | {r['acc']:05.2f}%    | {r['kappa']:.3f}  | {r['kappam']:.3f}   | {r['drifts']:<6} | {r['ram']:<12.3f} | {r['tempo']:.2f}")
 
 if __name__ == "__main__":
     # Ajuste o caminho para onde seus CSVs estão
