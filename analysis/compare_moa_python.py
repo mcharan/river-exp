@@ -92,7 +92,7 @@ def load_python(folder, mw=None, seed=123456789):
 
             acc    = float(last.get('Accuracy', float('nan'))) * 100
             kappa  = float(last.get('Kappa',    float('nan')))
-            kappam = float(last.get('KappaM',   float('nan')))
+            kappam = float(last.get('Kappa_M', last.get('KappaM', float('nan'))))
             drifts = last.get('Drifts', float('nan'))
             ram_mb = float(last.get('RAM_MB',   float('nan')))
             lat_ms = df['Latencia_ms'].mean() if 'Latencia_ms' in df.columns else float('nan')
