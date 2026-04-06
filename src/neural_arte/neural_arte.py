@@ -485,6 +485,16 @@ COMPOSITIONS = {
         {"type": "MLP_Mid",       "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": False},
         {"type": "MLP_Mid_Proj",  "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": True},
     ],
+    "abc_cnn": [
+        # A: "Veloz"       — SGD, LR alto, raso
+        {"type": "MLP_Fast", "opt": optim.SGD,  "lr": 0.05,  "layers": [64],           "cnn": False, "proj": False},
+        # B: "Analítico"   — Adam, LR baixo, profundo
+        {"type": "MLP_Deep", "opt": optim.Adam, "lr": 0.001, "layers": [256, 128, 64], "cnn": False, "proj": False},
+        # C: "Equilibrado" — Adam, LR médio, médio
+        {"type": "MLP_Mid",  "opt": optim.Adam, "lr": 0.01,  "layers": [128, 64],      "cnn": False, "proj": False},
+        # D: "CNN"         — Adam, LR médio, CNN → captura padrões locais/correlações
+        {"type": "MLP_CNN",  "opt": optim.Adam, "lr": 0.01,  "layers": [64],           "cnn": True,  "proj": False},
+    ],
     "abc_extended": [
         # ABC original
         {"type": "MLP_Fast",    "opt": optim.SGD,     "lr": 0.05,  "layers": [64],           "cnn": False, "proj": False},
