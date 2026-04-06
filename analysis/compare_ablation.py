@@ -37,7 +37,7 @@ def parse_filename(filepath):
             # composition ainda tem dataset no início — remove pelo primeiro '_'
             # mas dataset pode ter '_' (ex: agrawal_a), então não podemos partir simplesmente
             # Os compositions conhecidos:
-            known = ["abc_extended", "abc_proj", "current", "abc"]
+            known = ["abc_extended", "abc_proj", "abc_cnn", "current", "abc"]
             dataset = None
             comp = None
             for c in known:
