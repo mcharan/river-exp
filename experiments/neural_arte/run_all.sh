@@ -14,6 +14,7 @@ PYTHON="${PYTHON:-python3}"
 SCRIPT="$SCRIPT_DIR/src/neural_arte/neural_arte.py"
 LOGS_DIR="$SCRIPT_DIR/results/logs"
 DATASETS_PATH="${DATASETS_PATH:-}"
+DATASETS_PATH_REAL="${DATASETS_PATH_REAL:-}"
 
 WAVE_SIZE=4
 COMPOSITION="abc"
@@ -66,6 +67,17 @@ if [ -n "$DATASETS_PATH" ]; then
 else
     echo "[AVISO] DATASETS_PATH não definido — usando o default do código."
     echo "        Para sobrescrever: export DATASETS_PATH=/caminho/datasets"
+    echo ""
+fi
+
+if [ -n "$DATASETS_PATH_REAL" ]; then
+    if [ ! -d "$DATASETS_PATH_REAL" ]; then
+        echo "[ERRO] DATASETS_PATH_REAL não existe: $DATASETS_PATH_REAL"; exit 1
+    fi
+    DATASETS_ARG="$DATASETS_ARG --datasets_path_real $DATASETS_PATH_REAL"
+else
+    echo "[AVISO] DATASETS_PATH_REAL não definido — datasets reais usarão o mesmo caminho."
+    echo "        Para separar: export DATASETS_PATH_REAL=.../datasets"
     echo ""
 fi
 
