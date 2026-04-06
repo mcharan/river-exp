@@ -18,12 +18,14 @@ DATASETS_PATH_REAL="${DATASETS_PATH_REAL:-}"
 
 WAVE_SIZE=4
 COMPOSITION="abc"
+GPU=0
 EXTRA_ARGS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --wave)        WAVE_SIZE="$2";   shift 2 ;;
         --composition) COMPOSITION="$2"; shift 2 ;;
+        --gpu)         GPU="$2";         shift 2 ;;
         --no_drift)    EXTRA_ARGS="$EXTRA_ARGS --no_drift"; shift ;;
         *) echo "Argumento desconhecido: $1"; exit 1 ;;
     esac
@@ -87,7 +89,7 @@ total=${#datasets[@]}
 wave=0
 
 echo "============================================================"
-echo " NeuralARTE — ondas de $WAVE_SIZE | composition=$COMPOSITION"
+echo " NeuralARTE — ondas de $WAVE_SIZE | composition=$COMPOSITION | GPU=$GPU"
 echo " $total datasets | Logs: $LOGS_DIR"
 echo "============================================================"
 
@@ -109,7 +111,7 @@ while [ $i -lt $total ]; do
             echo "  Disparando: $session"
             screen -dmS "$session" bash -c "
                 cd $SCRIPT_DIR
-                $PYTHON $SCRIPT \
+                CUDA_VISIBLE_DEVICES=$GPU $PYTHON $SCRIPT \
                     --dataset $ds \
                     --seed 123456789 \
                     --n_models 30 \
