@@ -25,6 +25,7 @@ N_MODELS=30
 COMPOSITION="abc"
 N_RESET_LAYERS=1
 EXTRA_ARGS=""
+DRIFT_TAG="adwin"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -34,7 +35,7 @@ while [[ $# -gt 0 ]]; do
         --n_models)       N_MODELS="$2";       shift 2 ;;
         --composition)    COMPOSITION="$2";    shift 2 ;;
         --n_reset_layers) N_RESET_LAYERS="$2"; shift 2 ;;
-        --no_drift)       EXTRA_ARGS="$EXTRA_ARGS --no_drift"; shift ;;
+        --no_drift)       EXTRA_ARGS="$EXTRA_ARGS --no_drift"; DRIFT_TAG="nodrift"; shift ;;
         *) echo "Argumento desconhecido: $1"; exit 1 ;;
     esac
 done
@@ -136,7 +137,7 @@ while [ $i -lt $total ]; do
     sessions=()
     for (( j=0; j<WAVE_SIZE && i<total; j++, i++ )); do
         ds="${datasets[$i]}"
-        session="arteM_${ARCH}_${ds}"
+        session="arteM_${ARCH}_${COMPOSITION}_${DRIFT_TAG}_${ds}"
         LOG="$LOGS_DIR/${session}.log"
 
         if tmux has-session -t "$session" 2>/dev/null; then
