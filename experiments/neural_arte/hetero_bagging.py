@@ -13,14 +13,32 @@ Uso:
 import sys
 import os
 
-# Fix: CUDA_VISIBLE_DEVICES=-1 is non-standard and can hang on some drivers.
-# Normalize it to "" (no CUDA devices) before torch is imported.
-if os.environ.get('CUDA_VISIBLE_DEVICES', '') == '-1':
+# Early-parse --gpu from sys.argv to set CUDA_VISIBLE_DEVICES BEFORE torch is
+# imported. Necessary because tmux new-session inherits the server environment,
+# which may have CUDA_VISIBLE_DEVICES=0 even when the orchestrator passes --gpu -1.
+_early_gpu = None
+for _i, _arg in enumerate(sys.argv):
+    if _arg == '--gpu' and _i + 1 < len(sys.argv):
+        try:
+            _early_gpu = int(sys.argv[_i + 1])
+        except ValueError:
+            pass
+        break
+
+if (_early_gpu is not None and _early_gpu < 0) or \
+        os.environ.get('CUDA_VISIBLE_DEVICES', '') == '-1':
     os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import torch
+
+# Limit CPU thread pools for CPU-only runs to avoid over-subscription.
+# (96-core HT host = 48 real cores; each process should use only a few threads.)
+if not os.environ.get('CUDA_VISIBLE_DEVICES', 'present'):
+    torch.set_num_threads(2)
+    os.environ.setdefault('OMP_NUM_THREADS', '2')
+    os.environ.setdefault('MKL_NUM_THREADS', '2')
 import numpy as np
 import time
 import argparse
