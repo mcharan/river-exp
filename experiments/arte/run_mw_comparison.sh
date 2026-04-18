@@ -52,13 +52,13 @@ for ds in "${DATASETS[@]}"; do
         LOG="$LOGS_DIR/${SESSION}.log"
 
         # Pula se já existe sessão ativa com esse nome
-        if screen -ls | grep -q "$SESSION"; then
+        if tmux has-session -t "$SESSION" 2>/dev/null; then
             echo "[SKIP] Sessão '$SESSION' já está ativa."
             continue
         fi
 
         echo "Disparando: $SESSION"
-        screen -dmS "$SESSION" bash -c "
+        tmux new-session -d -s "$SESSION" bash -c "
             cd $SCRIPT_DIR
             $PYTHON $SCRIPT \
                 --dataset $ds \
@@ -76,4 +76,4 @@ done
 echo ""
 echo "Disparados: ${#DATASETS[@]} datasets × 2 configurações = $((${#DATASETS[@]} * 2)) experimentos"
 echo "Acompanhe: tail -f $LOGS_DIR/arte_<dataset>_mw<5|10>.log"
-echo "Sessões:   screen -ls | grep arte_"
+echo "Sessões:   tmux ls 2>/dev/null | grep arte_"

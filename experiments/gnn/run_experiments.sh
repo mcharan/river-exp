@@ -50,7 +50,7 @@ for ds in "electricity" "sea_g" "outdoor"; do
         fi
 
         echo "  [$TAG] → GPU $GPU"
-        screen -dmS "$TAG" bash -c "
+        tmux new-session -d -s "$TAG" bash -c "
             cd $SCRIPT_DIR
             CUDA_VISIBLE_DEVICES=$GPU $PYTHON $SCRIPT \
                 --dataset $ds \

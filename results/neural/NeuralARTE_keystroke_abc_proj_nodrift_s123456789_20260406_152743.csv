@@ -1,0 +1,2 @@
+Run_ID,Time,Instancia,Dataset,Accuracy,Kappa,KappaM,GMean,Latencia_ms,Drifts,RAM_MB,VRAM_MB
+abc_proj_nodrift,15:28:18,1600,keystroke,0.885625,0.8475,0.8475,0.8851561272759711,22.401310330606066,0,828.1640625,24.7265625

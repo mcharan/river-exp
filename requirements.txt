@@ -1,0 +1,18 @@
+# Ambiente river-exp — gerado a partir do freeze do host de desenvolvimento
+# NAO reinstalar torch: ja instalado neste host como 2.1.0+cu121
+# torch-geometric/scatter/sparse omitidos: pinados a torch==2.2.2 (incompativel)
+
+river==0.23.0
+deep-river==0.3.2
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.15.3
+scikit-learn==1.5.2
+matplotlib==3.10.7
+psutil==7.1.3
+tqdm==4.66.6
+sortedcontainers==2.4.0
+lark==1.3.1
+networkx==3.4.2
+xxhash==3.6.0
+pytest==9.0.2

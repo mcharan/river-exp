@@ -139,13 +139,14 @@ while [ $i -lt $total ]; do
         session="arteM_${ARCH}_${ds}"
         LOG="$LOGS_DIR/${session}.log"
 
-        if screen -ls | grep -q "$session"; then
+        if tmux has-session -t "$session" 2>/dev/null; then
             echo "  [SKIP] $session já está ativa"
         else
             echo "  Disparando: $session"
-            screen -dmS "$session" bash -c "
+            CUDA_ENV=$([ "$GPU" -lt 0 ] && echo "" || echo "$GPU")
+            tmux new-session -d -s "$session" bash -c "
                 cd $SCRIPT_DIR
-                CUDA_VISIBLE_DEVICES=$GPU $PYTHON $SCRIPT \
+                CUDA_VISIBLE_DEVICES=$CUDA_ENV $PYTHON $SCRIPT \
                     --dataset $ds \
                     --seed 123456789 \
                     --lambda_val 6 \
@@ -164,7 +165,7 @@ while [ $i -lt $total ]; do
     while true; do
         ativos=0
         for s in "${sessions[@]}"; do
-            screen -ls | grep -q "$s" && ativos=$((ativos + 1))
+            tmux has-session -t "$s" 2>/dev/null && ativos=$((ativos + 1))
         done
         [ $ativos -eq 0 ] && break
         echo "  [$( date '+%H:%M' )] $ativos processo(s) ainda em execução..."
@@ -175,5 +176,5 @@ done
 
 echo ""
 echo "Todos os $total experimentos concluídos (arch=$ARCH)."
-echo "Sessões:    screen -ls | grep arteM_"
+echo "Sessões:    tmux ls 2>/dev/null | grep arteM_"
 echo "Resultados: $SCRIPT_DIR/results/neural/"

@@ -92,11 +92,11 @@ while [ $i -lt $total ]; do
         session="exp_${ds}_mw${MW}"
         LOG="$LOGS_DIR/${session}.log"
 
-        if screen -ls | grep -q "$session"; then
+        if tmux has-session -t "$session" 2>/dev/null; then
             echo "  [SKIP] $session já está ativa"
         else
             echo "  Disparando: $session"
-            screen -dmS "$session" bash -c "
+            tmux new-session -d -s "$session" bash -c "
                 cd $SCRIPT_DIR
                 $PYTHON $SCRIPT \
                     --dataset $ds \
@@ -116,7 +116,7 @@ while [ $i -lt $total ]; do
     while true; do
         ativos=0
         for s in "${sessions[@]}"; do
-            screen -ls | grep -q "$s" && ativos=$((ativos + 1))
+            tmux has-session -t "$s" 2>/dev/null && ativos=$((ativos + 1))
         done
         [ $ativos -eq 0 ] && break
         echo "  [$( date '+%H:%M' )] $ativos processo(s) ainda em execução..."

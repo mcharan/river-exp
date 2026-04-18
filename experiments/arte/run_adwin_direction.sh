@@ -51,13 +51,13 @@ for ds in "${ALL_DATASETS[@]}"; do
     SESSION="adwindir_${ds}"
     LOG="$LOGS_DIR/${SESSION}.log"
 
-    if screen -ls | grep -q "$SESSION"; then
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
         echo "[SKIP] '$SESSION' já está ativa."
         continue
     fi
 
     echo "  Disparando: $SESSION"
-    screen -dmS "$SESSION" bash -c "
+    tmux new-session -d -s "$SESSION" bash -c "
         cd $SCRIPT_DIR
         $PYTHON $SCRIPT \
             --dataset $ds \

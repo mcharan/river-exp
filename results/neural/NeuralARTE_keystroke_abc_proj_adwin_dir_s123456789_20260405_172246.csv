@@ -1,0 +1,2 @@
+Run_ID,Time,Instancia,Dataset,Accuracy,Kappa,KappaM,GMean,Latencia_ms,Drifts,RAM_MB,VRAM_MB
+abc_proj_adwin_dir,17:23:59,1600,keystroke,0.889375,0.8525,0.8525,0.8889566466494807,45.74815742787905,1,831.13671875,25.404296875
