@@ -1,0 +1,2 @@
+Run_ID,Time,Instancia,Dataset,Accuracy,Kappa,KappaM,GMean,Latencia_ms,Drifts,RAM_MB,VRAM_MB
+hetero_bagging_heterogeneous_nodrift,23:23:18,1600,keystroke,0.910625,0.8808333333333334,0.8808333333333334,0.9098366940415031,1686.3770811689028,0,1003.046875,17.2685546875

@@ -1,0 +1,2 @@
+Run_ID,Time,Instancia,Dataset,Accuracy,Kappa,KappaM,GMean,Latencia_ms,Drifts,RAM_MB,VRAM_MB
+hetero_bagging_abc_proj_adwin_dir,23:24:14,1600,keystroke,0.908125,0.8775,0.8775,0.906768708155952,1636.1146408443892,0,831.51171875,18.75732421875

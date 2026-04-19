@@ -1,0 +1,2 @@
+Run_ID,Time,Instancia,Dataset,Accuracy,Kappa,KappaM,GMean,Latencia_ms,Drifts,RAM_MB,VRAM_MB
+hetero_bagging_abc_proj_nodrift,00:48:00,1600,keystroke,0.908125,0.8775,0.8775,0.906768708155952,1528.5123329046473,0,515.12109375,0
