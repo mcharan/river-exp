@@ -22,6 +22,8 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import torch
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 from torch import nn, optim
 import numpy as np
 import time

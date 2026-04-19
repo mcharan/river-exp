@@ -32,13 +32,8 @@ if (_early_gpu is not None and _early_gpu < 0) or \
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 import torch
-
-# Limit CPU thread pools for CPU-only runs to avoid over-subscription.
-# (96-core HT host = 48 real cores; each process should use only a few threads.)
-if not os.environ.get('CUDA_VISIBLE_DEVICES', 'present'):
-    torch.set_num_threads(2)
-    os.environ.setdefault('OMP_NUM_THREADS', '2')
-    os.environ.setdefault('MKL_NUM_THREADS', '2')
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 import numpy as np
 import time
 import argparse
