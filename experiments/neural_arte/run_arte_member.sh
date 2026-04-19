@@ -26,6 +26,7 @@ COMPOSITION="abc"
 N_RESET_LAYERS=1
 EXTRA_ARGS=""
 DRIFT_TAG="adwin"
+CPUSET_BASE=-1
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -35,6 +36,7 @@ while [[ $# -gt 0 ]]; do
         --n_models)       N_MODELS="$2";       shift 2 ;;
         --composition)    COMPOSITION="$2";    shift 2 ;;
         --n_reset_layers) N_RESET_LAYERS="$2"; shift 2 ;;
+        --cpuset_base)    CPUSET_BASE="$2";    shift 2 ;;
         --no_drift)       EXTRA_ARGS="$EXTRA_ARGS --no_drift"; DRIFT_TAG="nodrift"; shift ;;
         *) echo "Argumento desconhecido: $1"; exit 1 ;;
     esac
@@ -145,9 +147,15 @@ while [ $i -lt $total ]; do
         else
             echo "  Disparando: $session"
             CUDA_ENV=$([ "$GPU" -lt 0 ] && echo "" || echo "$GPU")
+            if [ "$CPUSET_BASE" -ge 0 ] 2>/dev/null; then
+                CORE=$((CPUSET_BASE + j))
+                TASKSET="taskset -c $CORE"
+            else
+                TASKSET=""
+            fi
             tmux new-session -d -s "$session" bash -c "
                 cd $SCRIPT_DIR
-                CUDA_VISIBLE_DEVICES=$CUDA_ENV $PYTHON $SCRIPT \
+                OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=$CUDA_ENV $TASKSET $PYTHON $SCRIPT \
                     --dataset $ds \
                     --seed 123456789 \
                     --lambda_val 6 \
