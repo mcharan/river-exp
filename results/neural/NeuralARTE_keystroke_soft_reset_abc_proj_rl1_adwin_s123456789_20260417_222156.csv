@@ -1,0 +1,2 @@
+Run_ID,Time,Instancia,Dataset,Accuracy,Kappa,KappaM,GMean,Latencia_ms,Drifts,RAM_MB,VRAM_MB
+soft_reset_abc_proj_rl1_adwin,22:22:30,1600,keystroke,0.8725,0.8300000000000001,0.8300000000000001,0.871720383582413,21.446738066151738,0,822.8046875,24.71923828125
