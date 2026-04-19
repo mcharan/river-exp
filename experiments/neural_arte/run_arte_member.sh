@@ -155,7 +155,7 @@ while [ $i -lt $total ]; do
             fi
             tmux new-session -d -s "$session" bash -c "
                 cd $SCRIPT_DIR
-                OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=$CUDA_ENV $TASKSET $PYTHON $SCRIPT \
+                OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=$CUDA_ENV $TASKSET $PYTHON $SCRIPT \
                     --dataset $ds \
                     --seed 123456789 \
                     --lambda_val 6 \
