@@ -1,0 +1,2 @@
+Run_ID,Time,Instancia,Dataset,Accuracy,Kappa,KappaM,GMean,Latencia_ms,Drifts,RAM_MB,VRAM_MB
+hetero_bagging_heterogeneous_adwin_dir,12:55:49,1600,keystroke,0.911875,0.8825,0.8825,0.9110969492222613,1795.4196033960034,0,521.3125,0

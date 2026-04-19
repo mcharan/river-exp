@@ -1,0 +1,2 @@
+Run_ID,Time,Instancia,Dataset,Accuracy,Kappa,KappaM,GMean,Latencia_ms,Drifts,RAM_MB,VRAM_MB
+soft_reset_current_rl1_nodrift,01:14:31,1600,keystroke,0.903125,0.8708333333333332,0.8708333333333332,0.9028487325772082,2399.992570666509,0,1000.921875,23.52783203125
